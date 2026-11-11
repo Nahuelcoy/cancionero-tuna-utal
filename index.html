@@ -1,7 +1,7 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#7a1f2e"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Cancionero">
-<style>:root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<script>window.CN_STANDALONE=true</script><style>:root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 <title>Cancionero Tuna UTAL</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -289,15 +289,57 @@ try{S.size=+localStorage.getItem('cn-size')||16}catch(e){}
 S.dinst='guitarra';S.cshow=true;try{S.dinst=localStorage.getItem('cn-dinst')||'guitarra';S.cshow=localStorage.getItem('cn-cshow')!=='0'}catch(e){}
 S.fit=matchMedia('(max-width:700px)').matches;try{const f=localStorage.getItem('cn-fit');if(f!==null)S.fit=f==='1'}catch(e){}
 let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}catch(e){}
-function metaOf(id){return S.db?(S.meta[id]||{}):(LOCAL[id]||{})}
+/* cambios publicados para todos (versión GitHub): datos/cambios.json */
+const STANDALONE=!!window.CN_STANDALONE, REPO='Nahuelcoy/cancionero-tuna-utal', CPATH='datos/cambios.json';
+let GLOBAL={updatedAt:0,songs:{}};try{GLOBAL=JSON.parse(localStorage.getItem('cn-global')||'null')||GLOBAL}catch(e){}
+let TOKEN='';try{TOKEN=localStorage.getItem('cn-gh-token')||''}catch(e){}
+const isAdmin=()=>STANDALONE&&!!TOKEN;
+function gOf(id){return (GLOBAL.songs&&GLOBAL.songs[id])||{}}
+function metaOf(id){if(S.db) return S.meta[id]||{}; const g=gOf(id), l=LOCAL[id]||{}; const {text,...gm}=g; return (l.lastEditAt||0)>(g.at||0)?{...gm,...l}:{...l,...gm}}
+async function loadGlobal(){
+  if(!STANDALONE||!location.protocol.startsWith('http')) return;
+  try{const r=await fetch(CPATH+'?t='+Date.now(),{cache:'no-store'}); if(!r.ok) return; const j=await r.json();
+    if((j.updatedAt||0)>=(GLOBAL.updatedAt||0)){GLOBAL=j;try{localStorage.setItem('cn-global',JSON.stringify(j))}catch(e){}; if(!S.editing&&!busy()){S.song?renderSong():renderList()}}}catch(e){}
+}
+const b64=str=>{const u=new TextEncoder().encode(str);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
+const unb64=b=>new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\s/g,'')),c=>c.charCodeAt(0)));
+async function gh(path,opt){const r=await fetch('https://api.github.com/repos/'+REPO+path,{...opt,headers:{'Authorization':'Bearer '+TOKEN,'Accept':'application/vnd.github+json',...(opt&&opt.headers||{})}});if(!r.ok){const e=new Error('gh '+r.status);e.status=r.status;throw e}return r.json()}
+async function publishChange(id,patch,label){
+  for(let attempt=0;attempt<2;attempt++){
+    let sha=null, cur={updatedAt:0,songs:{}};
+    try{const f=await gh('/contents/'+CPATH+'?ref=main');sha=f.sha;cur=JSON.parse(unb64(f.content))}catch(e){if(e.status!==404) throw e}
+    const now=Date.now(); cur.songs=cur.songs||{}; cur.songs[id]={...(cur.songs[id]||{}),...patch,at:now}; cur.updatedAt=now;
+    try{await gh('/contents/'+CPATH,{method:'PUT',body:JSON.stringify({message:`${label}: ${BYID[id]?.title||id}`,content:b64(JSON.stringify(cur,null,1)),branch:'main',...(sha?{sha}:{})})});
+      GLOBAL=cur;try{localStorage.setItem('cn-global',JSON.stringify(cur))}catch(e){}
+      if(LOCAL[id]){for(const k of Object.keys(patch)) delete LOCAL[id][k];try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){}}
+      return;
+    }catch(e){if(e.status===409&&attempt===0) continue; throw e}
+  }
+}
+function pubError(e){return e.status===401||e.status===403?'GitHub rechazó la clave. Revísala en Administrador.':e.status===404?'La clave no tiene acceso al repositorio.':'No se pudo publicar. Revisa tu conexión.'}
+function adminSheet(){
+  let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
+  pop.innerHTML=`<div class="cpin" role="dialog" aria-label="Administrador" style="align-items:stretch;max-width:440px"><div class="cptop"><b style="font-family:var(--f-display);font-size:1.3rem;color:var(--wine)">Administrador</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p class="note" style="margin:0 0 8px">${TOKEN?'Este celular puede publicar cambios para todos. Lo que corrijas (letra, acordes, estilo, compás, tempo) les llega a todos en 1–2 minutos, la próxima vez que abran la app con internet.':'Pega la clave de GitHub para que este celular pueda publicar cambios para todos. Solo la necesita quien administra el cancionero.'}</p>
+    <div class="field"><label for="tok">Clave de GitHub (token)</label><input id="tok" type="password" autocomplete="off" value="${esc(TOKEN)}" placeholder="github_pat_…"></div>
+    <div class="bar" style="margin-top:10px"><button class="btn primary" id="toksave">Guardar y probar</button>${TOKEN?'<button class="btn" id="tokdel">Quitar clave</button>':''}</div>
+    <p class="note" id="tokmsg" style="margin:6px 0 0"></p></div>`;
+  pop.hidden=false; $('#cpx').onclick=()=>pop.hidden=true; pop.onclick=e=>{if(e.target===pop)pop.hidden=true};
+  $('#toksave').onclick=async()=>{const v=$('#tok').value.trim();const m=$('#tokmsg');if(!v){m.textContent='Pega la clave primero.';return}
+    TOKEN=v;m.textContent='Probando…';try{const r=await gh('');if(!r.permissions||!r.permissions.push) throw Object.assign(new Error('np'),{status:403});
+      try{localStorage.setItem('cn-gh-token',v)}catch(e){};m.textContent='Listo: este celular ya puede publicar cambios para todos.';toast('Modo administrador activado');setTimeout(()=>{pop.hidden=true;S.song?renderSong():renderList()},900)}
+    catch(e){TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(er){};m.textContent=pubError(e)}};
+  const d=$('#tokdel'); if(d) d.onclick=()=>{TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(e){};toast('Clave quitada de este celular');pop.hidden=true;S.song?renderSong():renderList()};
+}
 function meterOf(id){return metaOf(id).meter||GENRE[genreOf(id)]?.meter||'4/4'}
 const canMeta=()=>canW()||!S.db;
 async function saveMeta(id,patch){
   if(S.db) return touchMeta(id,patch);
+  if(isAdmin()) return publishChange(id,patch,'Estilo y tempo');
   LOCAL[id]={...(LOCAL[id]||{}),...patch,lastEditAt:Date.now()};
   try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){throw e}
 }
-function songText(id){const r=S.live.rev[0]; return (S.song===id&&r)?r.text:BYID[id].text}
+function songText(id){const r=S.live.rev[0]; if(S.song===id&&r) return r.text; const g=gOf(id); return g.text!=null?g.text:BYID[id].text}
 function genreOf(id){return metaOf(id).genre ?? BYID[id].genre}
 function tempoOf(id){const m=metaOf(id); return m.tempo||GENRE[genreOf(id)]?.bpm||100}
 async function names(ids){
@@ -333,8 +375,10 @@ function renderList(){
     html+=`<li><a href="#s-${s.id}"><span class="t">${esc(s.title)}</span>${m.lastEditAt?'<span class="dot" title="Con correcciones"></span>':''}<span class="g">${esc(genreOf(s.id)||'')}${m.tempo?` · ${m.tempo}`:''}</span></a></li>`;
   }
   html+='</ul>';
+  if(STANDALONE) html+=`<p class="note" style="margin-top:24px;text-align:center"><button class="btn small" id="adminbtn">⚙ Administrador${isAdmin()?' · activo':''}</button>${GLOBAL.updatedAt?` · Última actualización: ${fmtDate(GLOBAL.updatedAt)}`:''}</p>`;
   if(!items.length) html+=`<p class="empty">No hay canciones que coincidan. Prueba con otra palabra o quita el filtro de ritmo.</p>`;
   app.innerHTML=html;
+  const ab=$('#adminbtn'); if(ab) ab.onclick=adminSheet;
   const qi=$('#q'); qi.oninput=()=>{S.filter=qi.value;const pos=qi.selectionStart;renderList();const n=$('#q');n.focus();n.setSelectionRange(pos,pos)};
   app.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{S.genre=b.dataset.g;renderList()});
 }
@@ -382,7 +426,7 @@ function toggleStyle(){
     <div class="field"><label for="st-m">Compás</label><select id="st-m">${Object.entries(METERS).map(([k,v])=>`<option value="${k}" ${k===meterOf(id)?'selected':''}>${v}</option>`).join('')}</select></div>
     <div class="field"><label for="st-b">Tempo (BPM)</label><input id="st-b" type="number" min="40" max="240" value="${bpm}"></div>
     <button class="btn primary" type="submit">Guardar estilo</button>
-    <p class="note" style="grid-column:1/-1;margin:0">${S.db?'El estilo, el compás y el tempo se guardan para todo el grupo y cambian el ritmo de “Escuchar” y la tablatura sugerida.':'En la versión sin conexión el estilo se guarda solo en este teléfono.'}</p></form>`;
+    <p class="note" style="grid-column:1/-1;margin:0">${S.db||isAdmin()?'El estilo, el compás y el tempo se guardan para todo el grupo y cambian el ritmo de “Escuchar” y la tablatura sugerida.':'El estilo se guarda solo en este teléfono. Para cambiarlo para todos, usa el modo Administrador.'}</p></form>`;
   box.hidden=false;btn.setAttribute('aria-expanded','true');
   const sel=$('#st-g');
   sel.onchange=()=>{const v=sel.value;$('#st-ow').hidden=v!=='__otro';if(v&&v!=='__otro'){$('#st-m').value=GENRE[v].meter;$('#st-b').value=metaOf(id).tempo&&v===g?metaOf(id).tempo:GENRE[v].bpm}};
@@ -428,6 +472,7 @@ function panelLetra(){
     $('#edsave').onclick=async()=>{
       const t=$('#ed').value.replace(/\s+$/,''); if(t===text){toast('No hay cambios');return}
       $('#edsave').disabled=true;
+      if(!S.db&&isAdmin()){try{await publishChange(id,{text:t,note:$('#ednote').value.trim().slice(0,300)},'Corrección');S.editing=false;toast('Publicado: les llega a todos en 1–2 minutos');renderSong()}catch(e){$('#edsave').disabled=false;toast(pubError(e))}return}
       try{await S.db.collection(`songs/${id}/rev`).add({text:t,note:$('#ednote').value.trim().slice(0,300),by:S.me,at:Date.now()});await touchMeta(id,{});S.editing=false;toast('Corrección guardada');renderSong()}
       catch(e){$('#edsave').disabled=false;toast(e.code==='invalid_argument'?'No tienes permiso para guardar':'No se pudo guardar. Intenta de nuevo.')}
     };
@@ -438,7 +483,7 @@ function panelLetra(){
     <span class="grp"><span class="lbl">Letra</span><button id="fdn" aria-label="Letra más chica">A−</button><button id="fup" aria-label="Letra más grande">A+</button></span>
     <button class="btn" id="fit" aria-pressed="${S.fit}">${S.fit?'↔ Ajustada':'↔ Ajustar'}</button>
     <span class="grp"><button id="asc" aria-label="Desplazamiento automático">${SCR.on?'❚❚ Pausa':'▼ Desplazar'}</button><button id="sdn" aria-label="Más lento">−</button><span class="val" id="sv">${SCR.speed}</span><button id="sup" aria-label="Más rápido">+</button></span>
-    ${canW()?'<button class="btn" id="edit">Corregir letra o acordes</button>':''}
+    ${canW()||isAdmin()?'<button class="btn" id="edit">Corregir letra o acordes</button>':''}
   </div>
   ${chordStrip(text)}
   <div class="sheetbox">${text.trim()?`<pre class="sheet" style="font-size:${S.size}px">${sheetHTML(text,S.transpose)}</pre>`:`<p class="empty" style="margin:12px">Esta canción todavía no tiene letra en el cancionero.${canW()?' Usa “Corregir letra o acordes” para agregarla.':''}</p>`}</div>`;
@@ -898,6 +943,8 @@ function panelHist(){
 const use=n=>(window.claude&&window.claude.use)?window.claude.use(n):Promise.resolve(null);
 function busy(){const p=$('#panel');if(!p)return false;if(p.contains(document.activeElement)&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return true;return [...p.querySelectorAll('form input:not([type=file]),form textarea')].some(i=>i.value&&i.type!=='number'&&i.id!=='bpm')||[...p.querySelectorAll('input[type=file]')].some(i=>i.files&&i.files.length)}
 route();
+loadGlobal();
+addEventListener('online',loadGlobal);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadGlobal()});
 (async()=>{
   const st=$('#status');
   const timer=setTimeout(()=>{},0);
