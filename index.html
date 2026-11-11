@@ -965,4 +965,4 @@ addEventListener('online',loadGlobal);document.addEventListener('visibilitychang
   }catch(e){st.textContent='Versión sin conexión'}
 })();
 </script>
-<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){navigator.serviceWorker.register('sw.js')}</script></body></html>
+<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){const had=!!navigator.serviceWorker.controller;navigator.serviceWorker.register('sw.js').then(r=>r.update());navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!window.__r){window.__r=1;location.reload()}})}</script></body></html>
