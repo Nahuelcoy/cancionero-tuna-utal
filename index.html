@@ -123,6 +123,24 @@ h2.sec{font-family:var(--f-display);font-size:1.25rem;margin:18px 0 8px;color:va
 .shape svg{display:block}
 .shape b{font-family:var(--f-sheet);color:var(--chord)}
 .hist{font-size:.88rem}
+.cht{cursor:pointer;border-radius:3px}
+.cht:hover,.cht:focus-visible{background:var(--wine-soft)}
+.cstrip{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:12px}
+.cshead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cshead > b{font-family:var(--f-display);color:var(--wine);font-size:1.05rem;margin-right:auto}
+.cshead .grp button{min-height:34px;font-size:.85rem}
+.cshead .grp button[aria-pressed="true"]{background:var(--wine);color:var(--surface)}
+.cscroll{display:flex;gap:6px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:thin}
+.cbox{flex:none;display:flex;flex-direction:column;align-items:center;gap:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:4px 4px 6px;cursor:pointer;color:var(--ink)}
+.cbox:hover{border-color:var(--wine)}
+.cbox b{font-family:var(--f-sheet);color:var(--chord);font-size:1rem}
+.cpop{position:fixed;inset:0;z-index:30;background:rgb(0 0 0 / .35);display:flex;align-items:flex-end;justify-content:center;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+@media (min-width:701px){.cpop{align-items:center}}
+.cpin{background:var(--surface);color:var(--ink);border-radius:16px;padding:14px;max-width:360px;width:100%;display:flex;flex-direction:column;align-items:center}
+.cptop{display:flex;align-items:center;gap:10px;width:100%;margin-bottom:4px}
+.cptop b{font-family:var(--f-sheet);font-size:1.6rem;color:var(--chord)}
+.cptop .btn{margin-left:auto}
+.btn[aria-pressed="true"]{border-color:var(--wine);color:var(--wine);font-weight:700}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:.92rem;z-index:20;max-width:calc(100% - 32px)}
 .row2{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
 @media (min-width:900px){.row2.split{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}}
@@ -268,6 +286,7 @@ const METERS={'2/4':'2/4 (dos tiempos)','3/4':'3/4 (vals)','4/4':'4/4 (cuatro ti
 /* ---------- state ---------- */
 const S={db:null,user:null,assets:null,me:null,canWrite:null,meta:{},filter:'',genre:'',song:null,tab:'letra',transpose:0,size:16,unsubs:[],live:{rev:[],tabs:[],videos:[],audios:[]},names:{},instr:'bandurria',editing:false};
 try{S.size=+localStorage.getItem('cn-size')||16}catch(e){}
+S.dinst='guitarra';S.cshow=true;try{S.dinst=localStorage.getItem('cn-dinst')||'guitarra';S.cshow=localStorage.getItem('cn-cshow')!=='0'}catch(e){}
 S.fit=matchMedia('(max-width:700px)').matches;try{const f=localStorage.getItem('cn-fit');if(f!==null)S.fit=f==='1'}catch(e){}
 let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}catch(e){}
 function metaOf(id){return S.db?(S.meta[id]||{}):(LOCAL[id]||{})}
@@ -387,12 +406,12 @@ function sheetHTML(text,n){
     if(k==='b') return '<span class="bl"></span>';
     if(k==='c'){
       const t=transposeLine(line,n);
-      return `<span class="ln c">${esc(t)}</span>`;
+      return `<span class="ln c">${t.split(/(\s+)/).map(p=>/^\s*$/.test(p)?esc(p):p.split(/([\-–—,|])/).map(x=>isChordTok(x)?`<b class="cht" data-c="${esc(x.replace(/^[(*]+|[).,*:]+$/g,''))}" tabindex="0" role="button">${esc(x)}</b>`:esc(x)).join('')).join('')}</span>`;
     }
     if(k==='s'){
       // label + inline chords e.g. "INTRO: C Am"
       const t=line.replace(/(\s)((?:Do|Re|Mi|Fa|Sol|La|Si|[A-G])(?:#|b)?[^\s]*)/g,(a,sp,tok)=>isChordTok(tok)?sp+'\u0001'+transposeTok(tok,n)+'\u0002':a);
-      return `<span class="ln s">${esc(t).replace(/\u0001/g,'<span class="c">').replace(/\u0002/g,'</span>')}</span>`;
+      return `<span class="ln s">${esc(t).replace(/\u0001([^\u0002]*)\u0002/g,(m,c)=>`<b class="c cht" data-c="${c.replace(/^[(*]+|[).,*:]+$/g,'')}" tabindex="0" role="button">${c}</b>`)}</span>`;
     }
     return `<span class="ln">${esc(line)}</span>`;
   }).join('');
@@ -421,8 +440,9 @@ function panelLetra(){
     <span class="grp"><button id="asc" aria-label="Desplazamiento automático">${SCR.on?'❚❚ Pausa':'▼ Desplazar'}</button><button id="sdn" aria-label="Más lento">−</button><span class="val" id="sv">${SCR.speed}</span><button id="sup" aria-label="Más rápido">+</button></span>
     ${canW()?'<button class="btn" id="edit">Corregir letra o acordes</button>':''}
   </div>
+  ${chordStrip(text)}
   <div class="sheetbox">${text.trim()?`<pre class="sheet" style="font-size:${S.size}px">${sheetHTML(text,S.transpose)}</pre>`:`<p class="empty" style="margin:12px">Esta canción todavía no tiene letra en el cancionero.${canW()?' Usa “Corregir letra o acordes” para agregarla.':''}</p>`}</div>`;
-  fitSheet();
+  fitSheet(); wireChords(p);
   const i=SONGS.findIndex(x=>x.id===id), pv=SONGS[i-1], nx=SONGS[i+1];
   p.insertAdjacentHTML('beforeend',`<nav class="songnav" aria-label="Otras canciones">${pv?`<a href="#s-${pv.id}">← ${esc(pv.title)}</a>`:'<span></span>'}${nx?`<a href="#s-${nx.id}">${esc(nx.title)} →</a>`:''}</nav>`);
   $('#fit').onclick=()=>{S.fit=!S.fit;try{localStorage.setItem('cn-fit',S.fit?'1':'0')}catch(e){};panelLetra()};
@@ -608,9 +628,8 @@ function tick(){
     if(PLAY.step>=PLAY.pat.steps){PLAY.step=0;PLAY.idx++; if(PLAY.idx>=PLAY.seq.length){ if(PLAY.loop) PLAY.idx=0; else {setTimeout(stopAudio,beat*1000*PLAY.pat.steps);clearInterval(PLAY.timer);PLAY.timer=null;return} } }
   }
 }
-function startAudio(from){
-  const ac=ctx(); if(ac.state==='suspended') ac.resume();
-  if(!PLAY.out){
+function ensureOut(){
+  const ac=ctx(); if(PLAY.out) return;
     PLAY.out=ac.createGain();PLAY.out.gain.value=.7;const comp=ac.createDynamicsCompressor();PLAY.out.connect(comp).connect(ac.destination);
     // sala: reverberación corta generada
     const len=Math.floor(ac.sampleRate*1.4), ir=ac.createBuffer(2,len,ac.sampleRate);
@@ -623,7 +642,10 @@ function startAudio(from){
     const b3=ac.createBiquadFilter();b3.type='peaking';b3.frequency.value=2800;b3.Q.value=1;b3.gain.value=-2.5;
     const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=6500;lp.Q.value=.5;
     PLAY.gbus.connect(b1).connect(b2).connect(b3).connect(lp).connect(PLAY.out);
-  }
+}
+function startAudio(from){
+  const ac=ctx(); if(ac.state==='suspended') ac.resume();
+  ensureOut();
   const g=genreOf(S.song); const meter=meterOf(S.song);
   PLAY.pat=(PAT[g]&&(!metaOf(S.song).meter||metaOf(S.song).meter===GENRE[g]?.meter))?PAT[g]:PAT[meter]; PLAY.idx=from||0; PLAY.step=0; PLAY.next=ac.currentTime+.08; PLAY.on=true;
   clearInterval(PLAY.timer); PLAY.timer=setInterval(tick,25); tick(); updPlayBtn();
@@ -737,6 +759,65 @@ function suggestTab(seq,inst,meter){
   }
   return {text:sys.join('\n\n'),shapes};
 }
+function gtrSVG(c,big){
+  const notes=guitarShape(c); const fr=notes.map((m,i)=>m===null?-1:m-GTUNE[i]);
+  const k=big?1.6:1, w=(big?100:78)*k,h=96*k, x0=12*k, y0=20*k, dx=(w-24*k)/5, dy=14*k;
+  const pos=fr.filter(f=>f>0); const mx=pos.length?Math.max(...pos):0, mn=pos.length?Math.min(...pos):0;
+  const st=mx<=4?1:mn; const rows=4;
+  let sv=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Acorde ${esc(c.name)} en guitarra: ${fr.map(f=>f<0?'x':f).join(' ')}">`;
+  for(let i=0;i<6;i++) sv+=`<line x1="${x0+i*dx}" y1="${y0}" x2="${x0+i*dx}" y2="${y0+dy*rows}" stroke="currentColor" stroke-opacity=".55" stroke-width="${1+(5-i)*.15}"/>`;
+  for(let j=0;j<=rows;j++) sv+=`<line x1="${x0}" y1="${y0+j*dy}" x2="${x0+dx*5}" y2="${y0+j*dy}" stroke="currentColor" stroke-opacity="${j===0&&st===1?.95:.35}" stroke-width="${j===0&&st===1?3*k:1}"/>`;
+  // cejilla
+  const first=fr.findIndex(f=>f>=0);
+  if(mn>0 && fr.filter(f=>f===mn).length>=2 && fr.slice(first).every(f=>f>=mn)){
+    const a=fr.indexOf(mn), b=fr.lastIndexOf(mn); if(b-a>=2){const y=y0+(mn-st+.5)*dy; sv+=`<rect x="${x0+a*dx-5*k}" y="${y-5*k}" width="${(b-a)*dx+10*k}" height="${10*k}" rx="${5*k}" fill="var(--chord)"/>`}
+  }
+  fr.forEach((f,i)=>{const x=x0+i*dx;
+    if(f<0) sv+=`<text x="${x}" y="${y0-6*k}" font-size="${10*k}" text-anchor="middle" fill="currentColor" fill-opacity=".7">×</text>`;
+    else if(f===0) sv+=`<circle cx="${x}" cy="${y0-9*k}" r="${3.4*k}" fill="none" stroke="currentColor" stroke-width="1.2"/>`;
+    else sv+=`<circle cx="${x}" cy="${y0+(f-st+.5)*dy}" r="${4.8*k}" fill="var(--chord)"/>`;
+  });
+  if(st>1) sv+=`<text x="${x0+dx*5+5*k}" y="${y0+.5*dy+4*k}" font-size="${10*k}" fill="currentColor">${st}</text>`;
+  ['Mi','La','Re','Sol','Si','Mi'].forEach((n,i)=>{if(big) sv+=`<text x="${x0+i*dx}" y="${y0+dy*rows+14*k}" font-size="${7*k}" text-anchor="middle" fill="currentColor" fill-opacity=".6">${n}</text>`});
+  return sv+'</svg>';
+}
+function chordDiagram(name,inst,big){
+  const c=parseChord(name); if(!c) return '';
+  if(inst==='guitarra') return gtrSVG(c,big);
+  const fr=shapeFor(c,inst,null); let svg=shapeSVG(c,fr);
+  if(big) svg=svg.replace(/width="(\d+)" height="(\d+)"/,(m,w,h)=>`width="${w*1.8}" height="${h*1.8}"`);
+  return svg;
+}
+function chordStrip(text){
+  const seen=new Set(), list=[];
+  for(const c of chordsOf(text)){const n=S.transpose?transposeTok(c.name,S.transpose):c.name; if(!seen.has(n)){seen.add(n);list.push(n)}}
+  if(!list.length) return '';
+  const inst=S.dinst||'guitarra';
+  return `<section class="cstrip" aria-label="Acordes de la canción"><div class="cshead"><b>Acordes</b>
+    <span class="grp">${[['guitarra','Guitarra'],['bandurria','Bandurria'],['laud','Laúd']].map(([k,l])=>`<button data-di="${k}" aria-pressed="${inst===k}">${l}</button>`).join('')}</span>
+    <button class="btn small" id="cstog">${S.cshow?'Ocultar':'Mostrar'}</button></div>
+    ${S.cshow?`<div class="cscroll">${list.map(n=>`<button class="cbox" data-c="${esc(n)}">${chordDiagram(n,inst)}<b>${esc(n)}</b></button>`).join('')}</div>`:''}</section>`;
+}
+function wireChords(p){
+  p.querySelectorAll('[data-di]').forEach(b=>b.onclick=()=>{S.dinst=b.dataset.di;try{localStorage.setItem('cn-dinst',S.dinst)}catch(e){};panelLetra()});
+  const t=$('#cstog'); if(t) t.onclick=()=>{S.cshow=!S.cshow;try{localStorage.setItem('cn-cshow',S.cshow?'1':'0')}catch(e){};panelLetra()};
+  p.querySelectorAll('.cht,.cbox').forEach(el=>{el.onclick=()=>showChord(el.dataset.c);el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showChord(el.dataset.c)}}});
+}
+function showChord(name){
+  let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
+  const inst=S.dinst||'guitarra', c=parseChord(name);
+  pop.innerHTML=`<div class="cpin" role="dialog" aria-label="Acorde ${esc(name)}"><div class="cptop"><b>${esc(name)}</b><span class="note">${inst==='guitarra'?'Guitarra':inst==='laud'?'Laúd':'Bandurria'}</span><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    ${chordDiagram(name,inst,true)}
+    <div class="bar" style="margin:8px 0 0;justify-content:center">${[['guitarra','Guitarra'],['bandurria','Bandurria'],['laud','Laúd']].map(([k,l])=>`<button class="btn small" data-pi="${k}" aria-pressed="${inst===k}">${l}</button>`).join('')}<button class="btn small primary" id="cpplay">▶ Oír</button></div></div>`;
+  pop.hidden=false;
+  $('#cpx').onclick=()=>pop.hidden=true;
+  pop.onclick=e=>{if(e.target===pop)pop.hidden=true};
+  pop.querySelectorAll('[data-pi]').forEach(b=>b.onclick=()=>{S.dinst=b.dataset.pi;try{localStorage.setItem('cn-dinst',S.dinst)}catch(e){};showChord(name);if(S.tab==='letra'&&!S.editing){const y=scrollY;panelLetra();scrollTo(0,y)}});
+  $('#cpplay').onclick=()=>{if(!c)return;const ac=ctx();if(ac.state==='suspended')ac.resume();ensureOut();const t=ac.currentTime+.05;
+    if(inst==='guitarra'){gStrum(c,t,'D',.85,.1)}else{const fr=shapeFor(c,inst,null);if(fr){fr.forEach((f,i)=>playNote(TUN[inst].open[i]+f,inst==='laud'?'laud':'bandurria',t+i*.06,.35,1.2))}}};
+  $('#cpx').focus();
+}
+addEventListener('keydown',e=>{if(e.key==='Escape'){const p=$('#cpop');if(p)p.hidden=true}});
 function shapeSVG(c,fr){
   const w=64,h=78; let sv=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(c.name)}">`;
   const x0=8,y0=10,dx=(w-16)/5,dy=12; const base=fr?Math.max(1,Math.min(...fr.filter(f=>f>0).concat([99]))):1; const st=base>2?base:1;
