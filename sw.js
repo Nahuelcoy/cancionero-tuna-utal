@@ -1,4 +1,4 @@
-const C='cancionero-1794402818';
+const C='cancionero-1794404344';
 const CORE=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png','datos/cambios.json'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>Promise.all(CORE.map(u=>c.add(new Request(u,{cache:'reload'})).catch(()=>{})))));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))));self.clients.claim()});

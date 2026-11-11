@@ -310,10 +310,10 @@ async function publishChange(id,patch,label){
   for(let attempt=0;attempt<2;attempt++){
     let sha=null, cur={updatedAt:0,songs:{}};
     try{const f=await gh('/contents/'+CPATH+'?ref=main');sha=f.sha;cur=JSON.parse(unb64(f.content))}catch(e){if(e.status!==404) throw e}
-    const now=Date.now(); cur.songs=cur.songs||{}; cur.songs[id]={...(cur.songs[id]||{}),...patch,at:now}; cur.updatedAt=now;
+    const now=Date.now(); cur.songs=cur.songs||{}; const pt=typeof patch==='function'?patch(cur.songs[id]||{}):patch; cur.songs[id]={...(cur.songs[id]||{}),...pt,at:now}; cur.updatedAt=now;
     try{await gh('/contents/'+CPATH,{method:'PUT',body:JSON.stringify({message:`${label}: ${BYID[id]?.title||id}`,content:b64(JSON.stringify(cur,null,1)),branch:'main',...(sha?{sha}:{})})});
       GLOBAL=cur;try{localStorage.setItem('cn-global',JSON.stringify(cur))}catch(e){}
-      if(LOCAL[id]){for(const k of Object.keys(patch)) delete LOCAL[id][k];try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){}}
+      if(LOCAL[id]&&typeof patch!=='function'){for(const k of Object.keys(patch)) delete LOCAL[id][k];try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){}}
       return;
     }catch(e){if(e.status===409&&attempt===0) continue; throw e}
   }
@@ -412,7 +412,7 @@ function renderSong(soft){
   <h1 class="song">${esc(s.title)}</h1>
   <div class="sub">${canMeta()?`<button class="pill stylebtn" id="stylebtn" aria-expanded="false">${esc(g||'Definir estilo')} ✎</button>`:`<span class="pill">${esc(g||'Ritmo sin definir')}</span>`}<span class="pill wine">${bpm} BPM${m.tempo?'':' · sugerido'}</span><span>${meterOf(id)}</span>${S.live.rev[0]?`<span class="last">Última corrección: ${esc(who(S.live.rev[0].by))}, ${fmtDate(S.live.rev[0].at)}</span>`:''}</div>
   <div id="stylebox" hidden></div>
-  <div class="tabs" role="tablist">${tabs.map(([k,l,sh,ic])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><span class="full">${l}</span><span class="short">${sh}</span>${k==='videos'&&S.live.videos.length?` · ${S.live.videos.length}`:''}${k==='escuchar'&&S.live.audios.length?` · ${S.live.audios.length}`:''}</button>`).join('')}</div>
+  <div class="tabs" role="tablist">${tabs.map(([k,l,sh,ic])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><span class="full">${l}</span><span class="short">${sh}</span>${k==='videos'&&vidsOf(id).length?` · ${vidsOf(id).length}`:''}${k==='escuchar'&&S.live.audios.length?` · ${S.live.audios.length}`:''}</button>`).join('')}</div>
   <div class="panel" id="panel"></div>`;
   app.querySelectorAll('[role=tab]').forEach(b=>b.onclick=()=>{stopAudio();stopScroll();S.tab=b.dataset.t;S.editing=false;renderSong();window.scrollTo(0,0)});
   wake();
@@ -911,24 +911,32 @@ function panelTab(){
 }
 
 /* ---------- videos ---------- */
+const vidsOf=id=>S.db?S.live.videos:((gOf(id).videos)||[]);
 function panelVideos(){
-  const id=S.song,p=$('#panel'),list=S.live.videos.slice().sort((a,b)=>(b.year||0)-(a.year||0)||b.at-a.at);
+  const id=S.song,p=$('#panel'),list=vidsOf(id).slice().sort((a,b)=>(b.year||0)-(a.year||0)||b.at-a.at);
   const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){return''}};
   p.innerHTML=`${roNotice()}<p class="note">Videos de la Tuna de la Universidad de Talca o de la Tuna Novata tocando esta canción.</p>
   ${list.length?`<ul class="list">${list.map(v=>`<li class="item"><div class="main"><a href="${esc(v.url)}" target="_blank" rel="noopener"><b>${esc(v.title||'Presentación')}</b> ↗</a>
    <div class="meta"><span class="pill ${v.group==='Tuna Novata UTAL'?'':'wine'}">${esc(v.group)}</span> ${v.year?esc(v.year):''}${v.place?' · '+esc(v.place):''} · ${esc(host(v.url))}</div>
-   <div class="meta">Subido por ${esc(who(v.by))}</div></div>${canW()&&(v.by===S.me||S.isAdmin)?`<button class="btn small" data-del="${esc(v.id)}">Quitar</button>`:''}</li>`).join('')}</ul>`
+   ${S.db?`<div class="meta">Subido por ${esc(who(v.by))}</div>`:''}</div>${(canW()&&(v.by===S.me||S.isAdmin))||isAdmin()?`<button class="btn small" data-del="${esc(v.id)}">Quitar</button>`:''}</li>`).join('')}</ul>`
    :'<p class="empty">Todavía no hay presentaciones. Agrega el link de un video donde la tuna haya tocado esta canción.</p>'}
-  ${canW()?`<form class="form" id="vform">
+  ${canW()||STANDALONE?`<form class="form" id="vform">
     <div class="field" style="grid-column:1/-1"><label for="vurl">Link del video</label><input id="vurl" type="url" required placeholder="https://www.youtube.com/watch?v=…"></div>
     <div class="field"><label for="vtitle">Título</label><input id="vtitle" maxlength="100" placeholder="Ej.: Serenata Plaza de Armas"></div>
     <div class="field"><label for="vgroup">Tuna</label><select id="vgroup"><option>Tuna UTAL</option><option>Tuna Novata UTAL</option></select></div>
     <div class="field"><label for="vyear">Año</label><input id="vyear" type="number" min="1980" max="2100" placeholder="2025"></div>
     <div class="field"><label for="vplace">Lugar</label><input id="vplace" maxlength="80" placeholder="Ej.: Certamen de Tunas, Talca"></div>
-    <button class="btn primary" type="submit">Agregar presentación</button></form>`:''}`;
+    <button class="btn primary" type="submit">${S.db||isAdmin()?'Agregar presentación':'Enviar al administrador por WhatsApp'}</button>
+    ${STANDALONE&&!isAdmin()?'<p class="note" style="grid-column:1/-1;margin:0">Se abre WhatsApp con el link listo para mandarlo al grupo. Cuando el administrador lo agregue, aparecerá aquí para todos.</p>':''}</form>`:''}`;
   const f=$('#vform'); if(f) f.onsubmit=async e=>{e.preventDefault();const url=$('#vurl').value.trim();if(!/^https?:\/\/\S+$/i.test(url)){toast('El link debe empezar con https://');return}
+    if(!S.db){const v={id:'v'+Date.now().toString(36),url,title:$('#vtitle').value.trim().slice(0,100),group:$('#vgroup').value,year:+$('#vyear').value||null,place:$('#vplace').value.trim().slice(0,80),at:Date.now()};
+      if(isAdmin()){const btn=f.querySelector('[type=submit]');btn.disabled=true;try{await publishChange(id,prev=>({videos:[...(prev.videos||[]),v]}),'Video');toast('Video agregado: les llega a todos en 1–2 minutos');panelVideos()}catch(er){btn.disabled=false;toast(pubError(er))}}
+      else{const txt=`🎬 Video para el cancionero\nCanción: ${BYID[id].title}\n${v.group}${v.year?' · '+v.year:''}${v.place?' · '+v.place:''}${v.title?'\n'+v.title:''}\n${url}`;location.href='https://wa.me/?text='+encodeURIComponent(txt)}
+      return}
     try{await S.db.collection(`songs/${id}/videos`).add({url,title:$('#vtitle').value.trim().slice(0,100),group:$('#vgroup').value,year:+$('#vyear').value||null,place:$('#vplace').value.trim().slice(0,80),by:S.me,at:Date.now()});toast('Presentación agregada')}catch(er){toast('No se pudo agregar')}};
-  p.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro? Quitar';return}try{await S.db.doc(`songs/${id}/videos/${b.dataset.del}`).delete();toast('Presentación quitada')}catch(e){toast('No se pudo quitar')}});
+  p.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro? Quitar';return}
+    if(!S.db){try{await publishChange(id,prev=>({videos:(prev.videos||[]).filter(x=>x.id!==b.dataset.del)}),'Quitar video');toast('Video quitado');panelVideos()}catch(er){toast(pubError(er))}return}
+    try{await S.db.doc(`songs/${id}/videos/${b.dataset.del}`).delete();toast('Presentación quitada')}catch(e){toast('No se pudo quitar')}});
 }
 
 /* ---------- historial ---------- */
