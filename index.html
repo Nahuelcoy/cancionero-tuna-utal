@@ -41,7 +41,9 @@ header.top .in{display:flex;align-items:center;gap:12px;padding-block:10px;max-w
 .hero h1{font-family:var(--f-display);font-size:clamp(1.5rem,4vw,2.2rem);margin:0;line-height:1.1;color:var(--wine)}
 .hero p{margin:4px 0 0;color:var(--muted)}
 .sheetbox{position:relative}
-.sheetbox::after{content:"";position:absolute;right:16px;top:16px;width:160px;height:160px;background:var(--crest) center/contain no-repeat;opacity:.07;pointer-events:none}
+body.songview::after{content:"";position:fixed;left:50%;top:55%;transform:translate(-50%,-50%);width:min(88vw,560px);height:min(88vw,560px);background:var(--crest) center/contain no-repeat;opacity:.06;pointer-events:none;z-index:3}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) body.songview::after{opacity:.09}}
+:root[data-theme="dark"] body.songview::after{opacity:.09}
 .status{margin-left:auto;font-size:.8rem;color:var(--muted);text-align:right}
 main{max-width:1200px;margin:0 auto;padding-block:16px 48px}
 /* list */
@@ -384,9 +386,10 @@ function renderList(){
 }
 
 /* ---------- song ---------- */
-function closeSong(){S.unsubs.forEach(u=>{try{u()}catch(e){}});S.unsubs=[];S.song=null;S.live={rev:[],tabs:[],videos:[],audios:[]};S.editing=false}
+function closeSong(){document.body.classList.remove('songview');S.unsubs.forEach(u=>{try{u()}catch(e){}});S.unsubs=[];S.song=null;S.live={rev:[],tabs:[],videos:[],audios:[]};S.editing=false}
 function openSong(id){
   if(S.song!==id){closeSong();S.song=id;S.transpose=0;S.tab='letra';subscribeSong(id)}
+  document.body.classList.add('songview');
   renderSong();
 }
 function subscribeSong(id){
