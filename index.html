@@ -313,6 +313,7 @@ function metaOf(id){if(S.db) return S.meta[id]||{}; const g=gOf(id), l=LOCAL[id]
 async function loadGlobal(){
   if(!STANDALONE||!location.protocol.startsWith('http')) return;
   try{const r=await fetch(CPATH+'?t='+Date.now(),{cache:'no-store'}); if(!r.ok) return; const j=await r.json();
+    if((j.updatedAt||0)>(GLOBAL.updatedAt||0)&&GLOBAL.updatedAt){const ch=Object.entries(j.songs||{}).filter(([k,v])=>(v.at||0)>(GLOBAL.updatedAt||0)).map(([k])=>BYID[k]?.title).filter(Boolean);toast(ch.length?`Cancionero actualizado: ${ch.slice(0,2).join(', ')}${ch.length>2?' y '+(ch.length-2)+' más':''}`:'Cancionero actualizado')}
     if((j.updatedAt||0)>=(GLOBAL.updatedAt||0)){GLOBAL=j;try{localStorage.setItem('cn-global',JSON.stringify(j))}catch(e){}; if(!S.editing&&!busy()){S.song?renderSong():renderList()}}}catch(e){}
 }
 const b64=str=>{const u=new TextEncoder().encode(str);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
@@ -1037,7 +1038,7 @@ function busy(){const p=$('#panel');if(!p)return false;if(p.contains(document.ac
 route();
 loadGlobal();
 if(STANDALONE) setTimeout(checkApproval,300);
-addEventListener('online',loadGlobal);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadGlobal()});
+addEventListener('online',loadGlobal);if(STANDALONE)setInterval(()=>{if(document.visibilityState==='visible'&&navigator.onLine!==false)loadGlobal()},45000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadGlobal()});
 (async()=>{
   const st=$('#status');
   const timer=setTimeout(()=>{},0);
