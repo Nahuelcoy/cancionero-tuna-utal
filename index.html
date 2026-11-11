@@ -64,6 +64,8 @@ main{max-width:1200px;margin:0 auto;padding-block:16px 48px}
 h1.song{font-family:var(--f-display);font-size:clamp(1.6rem,4.5vw,2.4rem);line-height:1.1;margin:0;color:var(--ink);text-wrap:balance}
 .sub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 14px;color:var(--muted);font-size:.9rem}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--gold-soft);color:var(--gold);font-size:.8rem;font-weight:500}
+.stylebtn{border:1px dashed var(--gold);cursor:pointer;font:inherit;font-size:.8rem;font-weight:500;min-height:0}
+.stylebtn:hover{border-style:solid}
 .pill.wine{background:var(--wine-soft);color:var(--wine)}
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .tabs button{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
@@ -255,15 +257,27 @@ const GENRE={
   'Cha cha chá':{bpm:118,meter:'4/4'}, 'Foxtrot':{bpm:120,meter:'4/4'}, 'Tonada':{bpm:105,meter:'6/8'},
   'Isa':{bpm:112,meter:'6/8'}, 'Balada':{bpm:72,meter:'4/4'}, 'Huapango':{bpm:120,meter:'6/8'},
   'Cabales':{bpm:110,meter:'6/8'}, 'Cueca':{bpm:100,meter:'6/8'}, 'Cumbia':{bpm:96,meter:'4/4'},
-  'Rumba':{bpm:104,meter:'4/4'}, 'Salsa':{bpm:180,meter:'4/4'}, 'Ranchera':{bpm:110,meter:'3/4'}, '':{bpm:100,meter:'4/4'}
+  'Rumba':{bpm:104,meter:'4/4'}, 'Salsa':{bpm:180,meter:'4/4'}, 'Ranchera':{bpm:110,meter:'3/4'},
+  'Habanera':{bpm:80,meter:'2/4'}, 'Tango':{bpm:120,meter:'4/4'}, 'Marcha':{bpm:112,meter:'2/4'}, 'Polca':{bpm:120,meter:'2/4'},
+  'Jota':{bpm:170,meter:'3/4'}, 'Sevillanas':{bpm:180,meter:'3/4'}, 'Joropo':{bpm:180,meter:'3/4'}, 'Vals peruano':{bpm:160,meter:'3/4'},
+  'Bossa nova':{bpm:120,meter:'4/4'}, 'Son':{bpm:100,meter:'4/4'}, 'Danzón':{bpm:96,meter:'4/4'}, '':{bpm:100,meter:'4/4'}
 };
-const GENRES=Object.keys(GENRE).filter(Boolean);
+const GENRES=Object.keys(GENRE).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'));
+const METERS={'2/4':'2/4 (dos tiempos)','3/4':'3/4 (vals)','4/4':'4/4 (cuatro tiempos)','6/8':'6/8 (tonada, cueca)'};
 
 /* ---------- state ---------- */
 const S={db:null,user:null,assets:null,me:null,canWrite:null,meta:{},filter:'',genre:'',song:null,tab:'letra',transpose:0,size:16,unsubs:[],live:{rev:[],tabs:[],videos:[],audios:[]},names:{},instr:'bandurria',editing:false};
 try{S.size=+localStorage.getItem('cn-size')||16}catch(e){}
 S.fit=matchMedia('(max-width:700px)').matches;try{const f=localStorage.getItem('cn-fit');if(f!==null)S.fit=f==='1'}catch(e){}
-function metaOf(id){return S.meta[id]||{}}
+let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}catch(e){}
+function metaOf(id){return S.db?(S.meta[id]||{}):(LOCAL[id]||{})}
+function meterOf(id){return metaOf(id).meter||GENRE[genreOf(id)]?.meter||'4/4'}
+const canMeta=()=>canW()||!S.db;
+async function saveMeta(id,patch){
+  if(S.db) return touchMeta(id,patch);
+  LOCAL[id]={...(LOCAL[id]||{}),...patch,lastEditAt:Date.now()};
+  try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){throw e}
+}
 function songText(id){const r=S.live.rev[0]; return (S.song===id&&r)?r.text:BYID[id].text}
 function genreOf(id){return metaOf(id).genre ?? BYID[id].genre}
 function tempoOf(id){const m=metaOf(id); return m.tempo||GENRE[genreOf(id)]?.bpm||100}
@@ -330,12 +344,34 @@ function renderSong(soft){
   const tabs=[['letra','Letra y acordes','Letra','<path d="M4 5h16M4 10h16M4 15h10M4 20h7"/>'],['escuchar','Escuchar','Escuchar','<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'],['tablatura','Tablaturas','Tablatura','<path d="M3 6h18M3 10h18M3 14h18M3 18h18"/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="15" cy="14" r="1.6" fill="currentColor"/>'],['videos','Presentaciones','Videos','<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>'],['historial','Historial','Historial','<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>']];
   app.innerHTML=`<a class="back" href="#">← Todas las canciones</a>
   <h1 class="song">${esc(s.title)}</h1>
-  <div class="sub"><span class="pill">${esc(g||'Ritmo sin definir')}</span><span class="pill wine">${bpm} BPM${m.tempo?'':' · sugerido'}</span><span>${GENRE[g]?.meter||'4/4'}</span>${S.live.rev[0]?`<span class="last">Última corrección: ${esc(who(S.live.rev[0].by))}, ${fmtDate(S.live.rev[0].at)}</span>`:''}</div>
+  <div class="sub">${canMeta()?`<button class="pill stylebtn" id="stylebtn" aria-expanded="false">${esc(g||'Definir estilo')} ✎</button>`:`<span class="pill">${esc(g||'Ritmo sin definir')}</span>`}<span class="pill wine">${bpm} BPM${m.tempo?'':' · sugerido'}</span><span>${meterOf(id)}</span>${S.live.rev[0]?`<span class="last">Última corrección: ${esc(who(S.live.rev[0].by))}, ${fmtDate(S.live.rev[0].at)}</span>`:''}</div>
+  <div id="stylebox" hidden></div>
   <div class="tabs" role="tablist">${tabs.map(([k,l,sh,ic])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><span class="full">${l}</span><span class="short">${sh}</span>${k==='videos'&&S.live.videos.length?` · ${S.live.videos.length}`:''}${k==='escuchar'&&S.live.audios.length?` · ${S.live.audios.length}`:''}</button>`).join('')}</div>
   <div class="panel" id="panel"></div>`;
   app.querySelectorAll('[role=tab]').forEach(b=>b.onclick=()=>{stopAudio();stopScroll();S.tab=b.dataset.t;S.editing=false;renderSong();window.scrollTo(0,0)});
   wake();
+  const sbt=$('#stylebtn'); if(sbt) sbt.onclick=()=>toggleStyle();
   ({letra:panelLetra,escuchar:panelEscuchar,tablatura:panelTab,videos:panelVideos,historial:panelHist})[S.tab]();
+}
+function toggleStyle(){
+  const box=$('#stylebox'), btn=$('#stylebtn'), id=S.song;
+  if(!box.hidden){box.hidden=true;btn.setAttribute('aria-expanded','false');return}
+  const g=genreOf(id), m=metaOf(id), known=!g||GENRE[g], bpm=tempoOf(id);
+  box.innerHTML=`<form class="form" id="styleform" style="margin-top:0">
+    <div class="field"><label for="st-g">Estilo</label><select id="st-g">${['',...GENRES].map(x=>`<option value="${esc(x)}" ${x===g?'selected':''}>${esc(x||'Sin definir')}</option>`).join('')}<option value="__otro" ${known?'':'selected'}>Otro estilo…</option></select></div>
+    <div class="field" id="st-ow" ${known?'hidden':''}><label for="st-o">Nombre del estilo</label><input id="st-o" maxlength="40" value="${known?'':esc(g)}" placeholder="Ej.: Pasacalle"></div>
+    <div class="field"><label for="st-m">Compás</label><select id="st-m">${Object.entries(METERS).map(([k,v])=>`<option value="${k}" ${k===meterOf(id)?'selected':''}>${v}</option>`).join('')}</select></div>
+    <div class="field"><label for="st-b">Tempo (BPM)</label><input id="st-b" type="number" min="40" max="240" value="${bpm}"></div>
+    <button class="btn primary" type="submit">Guardar estilo</button>
+    <p class="note" style="grid-column:1/-1;margin:0">${S.db?'El estilo, el compás y el tempo se guardan para todo el grupo y cambian el ritmo de “Escuchar” y la tablatura sugerida.':'En la versión sin conexión el estilo se guarda solo en este teléfono.'}</p></form>`;
+  box.hidden=false;btn.setAttribute('aria-expanded','true');
+  const sel=$('#st-g');
+  sel.onchange=()=>{const v=sel.value;$('#st-ow').hidden=v!=='__otro';if(v&&v!=='__otro'){$('#st-m').value=GENRE[v].meter;$('#st-b').value=metaOf(id).tempo&&v===g?metaOf(id).tempo:GENRE[v].bpm}};
+  $('#styleform').onsubmit=async e=>{e.preventDefault();
+    let v=sel.value; if(v==='__otro'){v=$('#st-o').value.trim(); if(!v){toast('Escribe el nombre del estilo');return}}
+    const meter=$('#st-m').value, tempo=Math.max(40,Math.min(240,Math.round(+$('#st-b').value)||100));
+    stopAudio();
+    try{await saveMeta(id,{genre:v,meter,tempo});toast(`Estilo guardado: ${v||'sin definir'}, ${meter}, ${tempo} BPM`);renderSong()}catch(er){toast('No se pudo guardar el estilo')}};
 }
 function roNotice(){
   if(S.canWrite===false) return `<div class="notice">Estás en modo lectura. Para corregir, subir audios o links, pide al dueño del cancionero que te invite como editor.</div>`;
@@ -465,6 +501,8 @@ const PAT={
   '6/8':{steps:12,bass:[[0,'r'],[6,'f']],gtr:[[0,1],[4,.7],[6,1],[8,.7]],laud:[0,2,4,6,8,10],parche:[0,6],sonaja:[2,4,8,10]},
   'Cha cha chá':{steps:16,bass:[[0,'r'],[6,'f'],[8,'r']],gtr:[[4,1],[8,.8],[12,1],[14,.8]],laud:[0,4,8,12],parche:[12,14],sonaja:[0,4,8,10,12]},
   'Cumbia':{steps:16,bass:[[0,'r'],[8,'f']],gtr:[[4,1],[12,1]],laud:[0,4,8,12],parche:[0,8],sonaja:[2,6,10,14]},
+  'Habanera':{steps:8,bass:[[0,'r'],[3,'f'],[4,'r'],[6,'f']],gtr:[[0,1],[3,.7],[4,.9],[6,.8]],laud:[0,3,4,6],parche:[0,4],sonaja:[3,6]},
+  'Tango':{steps:16,bass:[[0,'r'],[4,'f'],[8,'r'],[12,'f']],gtr:[[0,1],[4,1],[8,1],[12,1]],laud:[0,4,8,12],parche:[0,8],sonaja:[4,12]},
   'Bolero':{steps:16,bass:[[0,'r'],[8,'f']],gtr:[[0,1],[6,.7],[8,1],[12,.7],[14,.6]],laud:[0,4,8,12],parche:[0,8],sonaja:[4,6,12,14]},
 };
 const PLAY={on:false,idx:0,step:0,next:0,timer:null,out:null,seq:[],inst:{guitarra:true,bandurria:true,laud:true,bajo:true,pandero:true},loop:true,bpm:100,pat:null};
@@ -496,21 +534,21 @@ function tick(){
 function startAudio(from){
   const ac=ctx(); if(ac.state==='suspended') ac.resume();
   if(!PLAY.out){PLAY.out=ac.createGain();PLAY.out.gain.value=.7;const comp=ac.createDynamicsCompressor();PLAY.out.connect(comp).connect(ac.destination)}
-  const g=genreOf(S.song); const meter=GENRE[g]?.meter||'4/4';
-  PLAY.pat=PAT[g]||PAT[meter]; PLAY.idx=from||0; PLAY.step=0; PLAY.next=ac.currentTime+.08; PLAY.on=true;
+  const g=genreOf(S.song); const meter=meterOf(S.song);
+  PLAY.pat=(PAT[g]&&(!metaOf(S.song).meter||metaOf(S.song).meter===GENRE[g]?.meter))?PAT[g]:PAT[meter]; PLAY.idx=from||0; PLAY.step=0; PLAY.next=ac.currentTime+.08; PLAY.on=true;
   clearInterval(PLAY.timer); PLAY.timer=setInterval(tick,25); tick(); updPlayBtn();
 }
 function stopAudio(){PLAY.on=false;clearInterval(PLAY.timer);PLAY.timer=null;updPlayBtn();document.querySelectorAll('.prog button.on').forEach(b=>b.classList.remove('on'))}
 function updPlayBtn(){const b=$('#play');if(b){b.textContent=PLAY.on?'■ Detener':'▶ Tocar';b.classList.toggle('primary',!PLAY.on)}}
 function markChord(i){document.querySelectorAll('.prog button').forEach((b,k)=>b.classList.toggle('on',k===i&&PLAY.on))}
-function markBeat(st){const dots=document.querySelectorAll('.beat i');const per=PLAY.pat.steps===12&&/6\/8/.test(GENRE[genreOf(S.song)]?.meter||'')?2:4;dots.forEach((d,k)=>d.classList.toggle('on',PLAY.on&&k===Math.floor(st/per)))}
+function markBeat(st){const dots=document.querySelectorAll('.beat i');const per=PLAY.pat.steps===12&&meterOf(S.song)==='6/8'?2:4;dots.forEach((d,k)=>d.classList.toggle('on',PLAY.on&&k===Math.floor(st/per)))}
 
 /* escuchar panel */
 function panelEscuchar(){
   const id=S.song, p=$('#panel'), text=songText(id);
   const seq=chordsOf(text).map(c=>{if(!S.transpose)return c;const t=transposeTok(c.name,S.transpose);return parseChord(t)||c});
   PLAY.seq=seq; PLAY.bpm=tempoOf(id);
-  const g=genreOf(id), meter=GENRE[g]?.meter||'4/4', beats=PAT[g]?.steps?PAT[g].steps/4:(meter==='2/4'?2:meter==='3/4'?3:meter==='6/8'?6:4);
+  const g=genreOf(id), meter=meterOf(id), beats=meter==='2/4'?2:meter==='3/4'?3:meter==='6/8'?6:4;
   const m=metaOf(id);
   p.innerHTML=`${roNotice()}
   <div class="row2 split"><section>
@@ -521,8 +559,8 @@ function panelEscuchar(){
     <button class="btn ${PLAY.on?'':'primary'}" id="play" ${seq.length?'':'disabled'}>${PLAY.on?'■ Detener':'▶ Tocar'}</button>
     <span class="grp"><span class="lbl">Tempo</span><button id="bdn" aria-label="Más lento">−</button><input class="val" id="bpm" type="number" min="40" max="240" value="${PLAY.bpm}" style="width:4.2em" aria-label="BPM"><button id="bup" aria-label="Más rápido">+</button></span>
     <button class="btn" id="tap">Marcar tempo (tap)</button>
-    ${canW()?`<button class="btn" id="savebpm">Guardar ${PLAY.bpm} BPM</button>`:''}
-    <span class="grp"><span class="lbl">Ritmo</span><select id="genre" ${canW()?'':'disabled'} aria-label="Ritmo">${['',...GENRES].map(x=>`<option value="${esc(x)}" ${x===g?'selected':''}>${esc(x||'Sin definir')}</option>`).join('')}</select></span>
+    ${canMeta()?`<button class="btn" id="savebpm">Guardar ${PLAY.bpm} BPM</button>`:''}
+    <span class="grp"><span class="lbl">Ritmo</span><select id="genre" ${canMeta()?'':'disabled'} aria-label="Ritmo">${['',...GENRES].concat(g&&!GENRE[g]?[g]:[]).map(x=>`<option value="${esc(x)}" ${x===g?'selected':''}>${esc(x||'Sin definir')}</option>`).join('')}</select></span>
     <span class="grp"><span class="lbl">Tono</span><button id="tdn2" aria-label="Bajar">−</button><span class="val">${S.transpose>0?'+':''}${S.transpose}</span><button id="tup2" aria-label="Subir">+</button></span>
   </div>
   <div class="beat" aria-hidden="true">${Array.from({length:beats},()=>'<i></i>').join('')}</div>
@@ -536,8 +574,8 @@ function panelEscuchar(){
   const setBpm=v=>{PLAY.bpm=Math.max(40,Math.min(240,Math.round(v)||100));$('#bpm').value=PLAY.bpm;const sb=$('#savebpm');if(sb)sb.textContent=`Guardar ${PLAY.bpm} BPM`};
   $('#bdn').onclick=()=>setBpm(PLAY.bpm-2);$('#bup').onclick=()=>setBpm(PLAY.bpm+2);$('#bpm').onchange=e=>setBpm(+e.target.value);
   let taps=[];$('#tap').onclick=()=>{const n=performance.now();taps=taps.filter(x=>n-x<3000);taps.push(n);if(taps.length>=3){const d=(taps[taps.length-1]-taps[0])/(taps.length-1);setBpm(60000/d)}};
-  const sb=$('#savebpm'); if(sb) sb.onclick=async()=>{try{await touchMeta(id,{tempo:PLAY.bpm});toast(`Tempo guardado: ${PLAY.bpm} BPM`)}catch(e){toast('No se pudo guardar el tempo')}};
-  $('#genre').onchange=async e=>{stopAudio();try{await touchMeta(id,{genre:e.target.value});toast('Ritmo actualizado')}catch(er){toast('No se pudo guardar el ritmo')}};
+  const sb=$('#savebpm'); if(sb) sb.onclick=async()=>{try{await saveMeta(id,{tempo:PLAY.bpm});toast(`Tempo guardado: ${PLAY.bpm} BPM`)}catch(e){toast('No se pudo guardar el tempo')}};
+  $('#genre').onchange=async e=>{stopAudio();const v=e.target.value;try{await saveMeta(id,{genre:v,meter:GENRE[v]?.meter||meterOf(id)});toast('Estilo actualizado');renderSong()}catch(er){toast('No se pudo guardar el ritmo')}};
   $('#tdn2').onclick=()=>{stopAudio();S.transpose--;panelEscuchar()};$('#tup2').onclick=()=>{stopAudio();S.transpose++;panelEscuchar()};
   renderAudios();
 }
@@ -619,7 +657,7 @@ function shapeSVG(c,fr){
   return sv+'</svg>';
 }
 function panelTab(){
-  const id=S.song,p=$('#panel'),inst=S.instr, g=genreOf(id), meter=GENRE[g]?.meter||'4/4';
+  const id=S.song,p=$('#panel'),inst=S.instr, g=genreOf(id), meter=meterOf(id);
   const seq=chordsOf(songText(id)).map(c=>S.transpose?(parseChord(transposeTok(c.name,S.transpose))||c):c);
   const uniq=[];const seen=new Set(); for(const c of seq){if(!seen.has(c.name)){seen.add(c.name);uniq.push(c)}}
   const sug=suggestTab(seq,inst,meter);
