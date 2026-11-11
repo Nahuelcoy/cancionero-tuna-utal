@@ -207,10 +207,14 @@ const SONGS = JSON.parse(document.getElementById('songs-data').textContent);
 const BYID = Object.fromEntries(SONGS.map(s=>[s.id,s]));
 const slugify=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const sortKey=t=>t.replace(/^[*]+/,'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,'');
+const ALL=Object.fromEntries(SONGS.map(s=>[s.id,s]));
 function applyNew(){
-  const nu=(typeof GLOBAL!=='undefined'&&GLOBAL.nuevas)||{}; let added=false;
-  for(const [id,n] of Object.entries(nu)){ if(!BYID[id]&&n&&n.title){const o={id,title:String(n.title).slice(0,120),genre:n.genre||'',text:String(n.text||'')};SONGS.push(o);BYID[id]=o;added=true} }
-  if(added) SONGS.sort((a,b)=>sortKey(a.title).localeCompare(sortKey(b.title)));
+  const G=(typeof GLOBAL!=='undefined'&&GLOBAL)||{}, nu=G.nuevas||{}, del=G.eliminadas||{};
+  for(const [id,n] of Object.entries(nu)){ if(!ALL[id]&&n&&n.title) ALL[id]={id,title:String(n.title).slice(0,120),genre:n.genre||'',text:String(n.text||'')} }
+  const keep=Object.values(ALL).filter(s=>!del[s.id]).sort((a,b)=>sortKey(a.title).localeCompare(sortKey(b.title)));
+  SONGS.length=0; SONGS.push(...keep);
+  for(const k of Object.keys(BYID)) delete BYID[k]; for(const s of keep) BYID[s.id]=s;
+  if(typeof S!=='undefined'&&S.song&&!BYID[S.song]){location.hash=''}
 }
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -370,7 +374,28 @@ function proposeVideo(id,v){
   $('#pcopy').onclick=()=>navigator.clipboard.writeText(body).then(()=>toast('Copiado: pégalo en un correo a '+ADMIN_MAIL),()=>toast('No se pudo copiar'));
   $('#pmail').addEventListener('click',()=>setTimeout(()=>toast('Gracias: el video queda pendiente de aprobación'),400));
 }
+function confirmDelete(id,clear){
+  const t=BYID[id]?.title||id;
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Eliminar canción</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p style="margin:0 0 6px">¿Eliminar <b>${esc(t)}</b> del cancionero de todos?</p><p class="note" style="margin:0">Se puede restaurar después desde ⚙ Administrador.</p>
+    <div class="bar" style="margin-top:12px"><button class="btn primary" id="delok">Sí, eliminar</button><button class="btn" id="delno">Cancelar</button></div>`);
+  $('#delno').onclick=()=>{if(clear)clear();$('#cpop').hidden=true};
+  $('#delok').onclick=async()=>{$('#delok').disabled=true;try{await publishAll((cur,now)=>{cur.eliminadas=cur.eliminadas||{};cur.eliminadas[id]=now},'Canción eliminada: '+t);if(clear)clear();$('#cpop').hidden=true;toast('Canción eliminada: se quita para todos en 1–2 minutos');location.hash='';route()}catch(e){$('#delok').disabled=false;toast(pubError(e))}};
+}
+function requestDelete(id){
+  const t=BYID[id].title, link=APP_URL+'?eliminar='+encodeURIComponent(id);
+  const subj=`Pedido para eliminar: ${t}`, body=`Pido eliminar del cancionero la canción "${t}".\nMotivo: \n\nPara aprobarlo, abre este link en el celular de administrador:\n${link}`;
+  const mail=`mailto:${ADMIN_MAIL}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  const wa='https://wa.me/?text='+encodeURIComponent(`🗑 ${subj}\nAprobar (administrador): ${link}`);
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Pedir que se elimine</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p class="note" style="margin:0 0 10px">Solo el administrador (${ADMIN_MAIL}) puede eliminar canciones. Mándale el pedido; si lo aprueba, la canción se quita para todos.</p>
+    <div class="list"><a class="btn primary" style="text-align:center;text-decoration:none" href="${esc(mail)}">✉ Enviar por correo</a><a class="btn" style="text-align:center;text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a></div>`);
+}
 function checkApproval(){
+  try{const del=new URLSearchParams(location.search).get('eliminar'); if(del){const clear=()=>{try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}};
+    if(!BYID[del]){clear();toast('Esa canción ya no está en el cancionero');return}
+    if(isAdmin()) confirmDelete(del,clear); else sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Pedido para eliminar</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div><p class="notice" style="margin:0">Solo el administrador puede eliminar <b>${esc(BYID[del].title)}</b>. Si eres el administrador, activa tu clave en <button class="btn small" id="apadm">⚙ Administrador</button> y vuelve a abrir el link.</p>`), $('#apadm')&&($('#apadm').onclick=adminSheet);
+    return}}catch(e){}
   let q; try{q=new URLSearchParams(location.search).get('aprobar')}catch(e){} if(!q) return;
   let d; try{d=unb64u(q)}catch(e){return}
   const clear=()=>{try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}};
@@ -482,6 +507,7 @@ function adminSheet(){
   pop.innerHTML=`<div class="cpin" role="dialog" aria-label="Administrador" style="align-items:stretch;max-width:440px"><div class="cptop"><b style="font-family:var(--f-display);font-size:1.3rem;color:var(--wine)">Administrador</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
     <p class="note" style="margin:0 0 8px">${TOKEN?'Este celular puede publicar cambios para todos. Lo que corrijas (letra, acordes, estilo, compás, tempo) les llega a todos en 1–2 minutos, la próxima vez que abran la app con internet.':'Pega la clave de GitHub para que este celular pueda publicar cambios para todos. Solo la necesita quien administra el cancionero.'}</p>
     <div class="field"><label for="tok">Clave de GitHub (token)</label><input id="tok" type="password" autocomplete="off" value="${esc(TOKEN)}" placeholder="github_pat_…"></div>
+    ${TOKEN&&Object.keys(GLOBAL.eliminadas||{}).filter(k=>ALL[k]).length?`<details style="margin:6px 0"><summary class="note" style="cursor:pointer">Canciones eliminadas (${Object.keys(GLOBAL.eliminadas).filter(k=>ALL[k]).length})</summary><div class="list" style="margin-top:6px">${Object.keys(GLOBAL.eliminadas).filter(k=>ALL[k]).map(k=>`<div class="item" style="align-items:center"><span class="main">${esc(ALL[k].title)}</span><button class="btn small" data-restore="${esc(k)}">Restaurar</button></div>`).join('')}</div></details>`:''}
     ${TOKEN?`<div class="list" style="margin:10px 0"><button class="btn" id="addsong">＋ Agregar una canción</button><label class="btn" style="text-align:center;cursor:pointer">⬆ Subir cancionero actualizado (.docx)<input id="docxin" type="file" accept=".docx" hidden></label></div>`:''}
     <div class="bar" style="margin-top:10px"><button class="btn primary" id="toksave">Guardar y probar</button>${TOKEN?'<button class="btn" id="tokdel">Quitar clave</button>':''}</div>
     <p class="note" id="tokmsg" style="margin:6px 0 0"></p></div>`;
@@ -491,6 +517,7 @@ function adminSheet(){
       try{localStorage.setItem('cn-gh-token',v)}catch(e){};m.textContent='Listo: este celular ya puede publicar cambios para todos.';toast('Modo administrador activado');setTimeout(()=>{pop.hidden=true;S.song?renderSong():renderList()},900)}
     catch(e){TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(er){};m.textContent=pubError(e)}};
   const as=$('#addsong'); if(as) as.onclick=()=>songForm();
+  pop.querySelectorAll('[data-restore]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await publishAll(cur=>{cur.eliminadas=cur.eliminadas||{};delete cur.eliminadas[b.dataset.restore]},'Canción restaurada: '+ALL[b.dataset.restore].title);toast('Canción restaurada para todos');pop.hidden=true;renderList()}catch(e){b.disabled=false;toast(pubError(e))}});
   const dx=$('#docxin'); if(dx) dx.onchange=()=>{const f=dx.files[0]; if(f) importDocx(f)};
   const d=$('#tokdel'); if(d) d.onclick=()=>{TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(e){};toast('Clave quitada de este celular');pop.hidden=true;S.song?renderSong():renderList()};
 }
@@ -526,7 +553,7 @@ function renderList(){
   const q=norm(S.filter);
   const items=SONGS.filter(s=>(!S.genre||(S.genre==='__none'?!genreOf(s.id):genreOf(s.id)===S.genre))&&(!q||norm(s.title).includes(q)||norm(s.text).includes(q)));
   const gcount={}; SONGS.forEach(s=>{const g=genreOf(s.id)||'Sin ritmo';gcount[g]=(gcount[g]||0)+1});
-  let html=`<div class="hero"><img src="${$('.crest').src}" alt=""><div><h1>Cancionero de la Tuna</h1><p>Universidad de Talca · ${SONGS.length} canciones</p></div></div><div class="tools"><input class="search" id="q" type="search" placeholder="Buscar canción o verso…" value="${esc(S.filter)}" aria-label="Buscar"></div>
+  let html=`${isAdmin()?'<div class="bar" style="justify-content:flex-end;margin:0 0 6px"><button class="btn small primary" id="addsong2">＋ Agregar canción</button><button class="btn small" id="upd2">⬆ Subir cancionero (.docx)</button><input id="docxin2" type="file" accept=".docx" hidden></div>':''}<div class="hero"><img src="${$('.crest').src}" alt=""><div><h1>Cancionero de la Tuna</h1><p>Universidad de Talca · ${SONGS.length} canciones</p></div></div><div class="tools"><input class="search" id="q" type="search" placeholder="Buscar canción o verso…" value="${esc(S.filter)}" aria-label="Buscar"></div>
   <div class="chips" role="group" aria-label="Ritmo"><button class="chip" data-g="" aria-pressed="${!S.genre}">Todas · ${SONGS.length}</button>${
     Object.entries(gcount).sort((a,b)=>b[1]-a[1]).map(([g,n])=>`<button class="chip" data-g="${esc(g==='Sin ritmo'?'__none':g)}" aria-pressed="${S.genre===(g==='Sin ritmo'?'__none':g)}">${esc(g)} · ${n}</button>`).join('')}</div>
   <p class="count">${items.length} ${items.length===1?'canción':'canciones'}${q?` con “${esc(S.filter)}”`:''}. <span class="dot" style="display:inline-block"></span> = tiene correcciones del grupo.</p><ul class="songs">`;
@@ -542,6 +569,9 @@ function renderList(){
   if(!items.length) html+=`<p class="empty">No hay canciones que coincidan. Prueba con otra palabra o quita el filtro de ritmo.</p>`;
   app.innerHTML=html;
   const ab=$('#adminbtn'); if(ab) ab.onclick=adminSheet;
+  const a2=$('#addsong2'); if(a2) a2.onclick=()=>songForm();
+  const u2=$('#upd2'); if(u2) u2.onclick=()=>$('#docxin2').click();
+  const d2=$('#docxin2'); if(d2) d2.onchange=()=>{const f=d2.files[0]; if(f) importDocx(f)};
   const qi=$('#q'); qi.oninput=()=>{S.filter=qi.value;const pos=qi.selectionStart;renderList();const n=$('#q');n.focus();n.setSelectionRange(pos,pos)};
   app.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{S.genre=b.dataset.g;renderList()});
 }
@@ -670,7 +700,9 @@ function panelLetra(){
     $('#lpcnt').onclick=e=>{PLAY.count=!PLAY.count;e.target.classList.toggle('act',PLAY.count);e.target.setAttribute('aria-pressed',PLAY.count);toast(PLAY.count?'Cuenta de un compás antes de empezar':'Sin cuenta')};
   }
   const i=SONGS.findIndex(x=>x.id===id), pv=SONGS[i-1], nx=SONGS[i+1];
+  if(STANDALONE) p.insertAdjacentHTML('beforeend',`<p class="note" style="margin-top:18px;text-align:center"><button class="btn small" id="delsong">${isAdmin()?'🗑 Eliminar esta canción':'Pedir que se elimine esta canción'}</button></p>`);
   p.insertAdjacentHTML('beforeend',`<nav class="songnav" aria-label="Otras canciones">${pv?`<a href="#s-${pv.id}">← ${esc(pv.title)}</a>`:'<span></span>'}${nx?`<a href="#s-${nx.id}">${esc(nx.title)} →</a>`:''}</nav>`);
+  const ds=$('#delsong'); if(ds) ds.onclick=()=>isAdmin()?confirmDelete(id):requestDelete(id);
   $('#fit').onclick=()=>{S.fit=!S.fit;try{localStorage.setItem('cn-fit',S.fit?'1':'0')}catch(e){};panelLetra()};
   $('#asc').onclick=()=>{SCR.on?stopScroll():startScroll();$('#asc').textContent=SCR.on?'❚❚ Pausa':'▼ Desplazar'};
   $('#sdn').onclick=()=>{SCR.speed=Math.max(1,SCR.speed-1);$('#sv').textContent=SCR.speed};
