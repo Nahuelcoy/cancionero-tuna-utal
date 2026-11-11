@@ -303,6 +303,7 @@ S.follow=true;S.dinst='guitarra';S.cshow=true;try{S.dinst=localStorage.getItem('
 S.fit=matchMedia('(max-width:700px)').matches;try{const f=localStorage.getItem('cn-fit');if(f!==null)S.fit=f==='1'}catch(e){}
 let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}catch(e){}
 /* cambios publicados para todos (versión GitHub): datos/cambios.json */
+const ADMIN_MAIL='tunautal@utalca.cl', APP_URL='https://nahuelcoy.github.io/cancionero-tuna-utal/';
 const STANDALONE=!!window.CN_STANDALONE, REPO='Nahuelcoy/cancionero-tuna-utal', CPATH='datos/cambios.json';
 let GLOBAL={updatedAt:0,songs:{}};try{GLOBAL=JSON.parse(localStorage.getItem('cn-global')||'null')||GLOBAL}catch(e){}
 let TOKEN='';try{TOKEN=localStorage.getItem('cn-gh-token')||''}catch(e){}
@@ -330,6 +331,45 @@ async function publishChange(id,patch,label){
   }
 }
 function pubError(e){return e.status===401||e.status===403?'GitHub rechazó la clave. Revísala en Administrador.':e.status===404?'La clave no tiene acceso al repositorio.':'No se pudo publicar. Revisa tu conexión.'}
+const b64u=o=>b64(JSON.stringify(o)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u=t=>JSON.parse(unb64(t.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((t.length+3)%4)));
+function sheet(html){let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
+  pop.innerHTML=`<div class="cpin" role="dialog" style="align-items:stretch;max-width:440px">${html}</div>`;pop.hidden=false;pop.onclick=e=>{if(e.target===pop)pop.hidden=true};const x=$('#cpx');if(x)x.onclick=()=>pop.hidden=true;return pop}
+function proposeVideo(id,v){
+  const link=APP_URL+'?aprobar='+b64u({s:id,u:v.url,t:v.title,g:v.group,y:v.year,p:v.place});
+  const sum=`Canción: ${BYID[id].title}\nVideo: ${v.url}\n${v.group}${v.year?' · '+v.year:''}${v.place?' · '+v.place:''}${v.title?'\nTítulo: '+v.title:''}`;
+  const subj=`Video para el cancionero: ${BYID[id].title}`;
+  const body=`${sum}\n\nPara aprobarlo, abre este link en el celular de administrador:\n${link}`;
+  const mail=`mailto:${ADMIN_MAIL}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`;
+  const wa='https://wa.me/?text='+encodeURIComponent(`🎬 ${subj}\n${sum}\n\nAprobar (administrador): ${link}`);
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Enviar para aprobación</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p class="note" style="margin:0 0 10px">Elige cómo mandarlo. El administrador (${ADMIN_MAIL}) recibe un link para aprobarlo con un toque.</p>
+    <div class="list"><a class="btn primary" style="text-align:center;text-decoration:none" href="${esc(mail)}" id="pmail">✉ Enviar por correo</a>
+    <a class="btn" style="text-align:center;text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>
+    <button class="btn" id="pcopy">Copiar el link de aprobación</button></div>
+    <p class="note" style="margin:8px 0 0">Si no se abre tu correo, copia el link y mándalo a <b>${ADMIN_MAIL}</b>.</p>`);
+  $('#pcopy').onclick=()=>navigator.clipboard.writeText(body).then(()=>toast('Copiado: pégalo en un correo a '+ADMIN_MAIL),()=>toast('No se pudo copiar'));
+  $('#pmail').addEventListener('click',()=>setTimeout(()=>toast('Gracias: el video queda pendiente de aprobación'),400));
+}
+function checkApproval(){
+  let q; try{q=new URLSearchParams(location.search).get('aprobar')}catch(e){} if(!q) return;
+  let d; try{d=unb64u(q)}catch(e){return}
+  const clear=()=>{try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}};
+  if(!d||!BYID[d.s]||!/^https?:\/\/\S+$/i.test(d.u||'')){clear();return}
+  const v={url:d.u,title:String(d.t||'').slice(0,100),group:d.g==='Tuna Novata UTAL'?'Tuna Novata UTAL':'Tuna UTAL',year:+d.y||null,place:String(d.p||'').slice(0,80)};
+  const host=(()=>{try{return new URL(v.url).hostname.replace(/^www\./,'')}catch(e){return''}})();
+  const already=((gOf(d.s).videos)||[]).some(x=>x.url===v.url);
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Video por aprobar</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p style="margin:0"><b>${esc(BYID[d.s].title)}</b></p>
+    <p class="note" style="margin:4px 0 8px">${esc(v.title||'Sin título')} · ${esc(v.group)}${v.year?' · '+esc(v.year):''}${v.place?' · '+esc(v.place):''}</p>
+    <a href="${esc(v.url)}" target="_blank" rel="noopener" style="word-break:break-all">Ver el video en ${esc(host)} ↗</a>
+    ${already?'<p class="notice" style="margin:10px 0 0">Este video ya está publicado.</p>':''}
+    ${isAdmin()?`<div class="bar" style="margin-top:12px"><button class="btn primary" id="apok" ${already?'disabled':''}>Aprobar y publicar</button><button class="btn" id="apno">Rechazar</button></div>`
+      :`<p class="notice" style="margin:12px 0 0">Solo el administrador puede aprobarlo. Si eres el administrador, activa tu clave en <button class="btn small" id="apadm">⚙ Administrador</button> y vuelve a abrir el link.</p>`}`);
+  const ok=$('#apok'); if(ok) ok.onclick=async()=>{ok.disabled=true;try{await publishChange(d.s,prev=>({videos:(prev.videos||[]).some(x=>x.url===v.url)?prev.videos:[...(prev.videos||[]),{id:'v'+Date.now().toString(36),...v,at:Date.now()}]}),'Video aprobado');clear();$('#cpop').hidden=true;toast('Aprobado: les llega a todos en 1–2 minutos');location.hash='s-'+d.s;route();S.tab='videos';renderSong()}catch(e){ok.disabled=false;toast(pubError(e))}};
+  const no=$('#apno'); if(no) no.onclick=()=>{clear();$('#cpop').hidden=true;toast('Video rechazado: no se publicó')};
+  const ad=$('#apadm'); if(ad) ad.onclick=adminSheet;
+}
 function adminSheet(){
   let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
   pop.innerHTML=`<div class="cpin" role="dialog" aria-label="Administrador" style="align-items:stretch;max-width:440px"><div class="cptop"><b style="font-family:var(--f-display);font-size:1.3rem;color:var(--wine)">Administrador</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
@@ -967,12 +1007,12 @@ function panelVideos(){
     <div class="field"><label for="vgroup">Tuna</label><select id="vgroup"><option>Tuna UTAL</option><option>Tuna Novata UTAL</option></select></div>
     <div class="field"><label for="vyear">Año</label><input id="vyear" type="number" min="1980" max="2100" placeholder="2025"></div>
     <div class="field"><label for="vplace">Lugar</label><input id="vplace" maxlength="80" placeholder="Ej.: Certamen de Tunas, Talca"></div>
-    <button class="btn primary" type="submit">${S.db||isAdmin()?'Agregar presentación':'Enviar al administrador por WhatsApp'}</button>
-    ${STANDALONE&&!isAdmin()?'<p class="note" style="grid-column:1/-1;margin:0">Se abre WhatsApp con el link listo para mandarlo al grupo. Cuando el administrador lo agregue, aparecerá aquí para todos.</p>':''}</form>`:''}`;
+    <button class="btn primary" type="submit">${S.db||isAdmin()?'Agregar presentación':'Enviar para aprobación'}</button>
+    ${STANDALONE&&!isAdmin()?'<p class="note" style="grid-column:1/-1;margin:0">No necesitas permiso: el video le llega al administrador (${ADMIN_MAIL}) y aparece aquí para todos cuando lo apruebe.</p>':''}</form>`:''}`;
   const f=$('#vform'); if(f) f.onsubmit=async e=>{e.preventDefault();const url=$('#vurl').value.trim();if(!/^https?:\/\/\S+$/i.test(url)){toast('El link debe empezar con https://');return}
     if(!S.db){const v={id:'v'+Date.now().toString(36),url,title:$('#vtitle').value.trim().slice(0,100),group:$('#vgroup').value,year:+$('#vyear').value||null,place:$('#vplace').value.trim().slice(0,80),at:Date.now()};
       if(isAdmin()){const btn=f.querySelector('[type=submit]');btn.disabled=true;try{await publishChange(id,prev=>({videos:[...(prev.videos||[]),v]}),'Video');toast('Video agregado: les llega a todos en 1–2 minutos');panelVideos()}catch(er){btn.disabled=false;toast(pubError(er))}}
-      else{const txt=`🎬 Video para el cancionero\nCanción: ${BYID[id].title}\n${v.group}${v.year?' · '+v.year:''}${v.place?' · '+v.place:''}${v.title?'\n'+v.title:''}\n${url}`;location.href='https://wa.me/?text='+encodeURIComponent(txt)}
+      else proposeVideo(id,v);
       return}
     try{await S.db.collection(`songs/${id}/videos`).add({url,title:$('#vtitle').value.trim().slice(0,100),group:$('#vgroup').value,year:+$('#vyear').value||null,place:$('#vplace').value.trim().slice(0,80),by:S.me,at:Date.now()});toast('Presentación agregada')}catch(er){toast('No se pudo agregar')}};
   p.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro? Quitar';return}
@@ -996,6 +1036,7 @@ const use=n=>(window.claude&&window.claude.use)?window.claude.use(n):Promise.res
 function busy(){const p=$('#panel');if(!p)return false;if(p.contains(document.activeElement)&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return true;return [...p.querySelectorAll('form input:not([type=file]),form textarea')].some(i=>i.value&&i.type!=='number'&&i.id!=='bpm')||[...p.querySelectorAll('input[type=file]')].some(i=>i.files&&i.files.length)}
 route();
 loadGlobal();
+if(STANDALONE) setTimeout(checkApproval,300);
 addEventListener('online',loadGlobal);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadGlobal()});
 (async()=>{
   const st=$('#status');
