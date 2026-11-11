@@ -125,7 +125,18 @@ h2.sec{font-family:var(--f-display);font-size:1.25rem;margin:18px 0 8px;color:va
 .shape svg{display:block}
 .shape b{font-family:var(--f-sheet);color:var(--chord)}
 .hist{font-size:.88rem}
-.cht{cursor:pointer;border-radius:3px}
+.cht{cursor:pointer;border-radius:3px;transition:background .15s,color .15s}
+.cht.now{background:var(--chord);color:var(--surface)!important;box-shadow:0 0 0 2px var(--chord)}
+.ln.nowl:not(.c){background:linear-gradient(transparent 55%,var(--gold-soft) 55%)}
+.lplay{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:5;margin-top:12px;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 8px 6px 6px;box-shadow:0 6px 20px rgb(0 0 0 / .14)}
+@media (max-width:700px){.lplay{bottom:calc(76px + env(safe-area-inset-bottom,0px))}}
+#lplay{width:46px;height:46px;border-radius:50%;border:0;background:var(--wine);color:var(--surface);font-size:1.1rem;cursor:pointer;flex:none}
+#lplay.on{background:var(--ink)}
+.lpinfo{display:flex;flex-direction:column;line-height:1.1;min-width:0;flex:1}
+.lpinfo b{font-family:var(--f-sheet);color:var(--chord);font-size:1.25rem;min-height:1.2em}
+.lpinfo span{font-size:.78rem;color:var(--muted)}
+.lpb{min-width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--bg);cursor:pointer;font-weight:700;font-size:.85rem;flex:none;padding:0 6px}
+.lpb.act{border-color:var(--wine);color:var(--wine)}
 .cht:hover,.cht:focus-visible{background:var(--wine-soft)}
 .cstrip{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:12px}
 .cshead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -288,7 +299,7 @@ const METERS={'2/4':'2/4 (dos tiempos)','3/4':'3/4 (vals)','4/4':'4/4 (cuatro ti
 /* ---------- state ---------- */
 const S={db:null,user:null,assets:null,me:null,canWrite:null,meta:{},filter:'',genre:'',song:null,tab:'letra',transpose:0,size:16,unsubs:[],live:{rev:[],tabs:[],videos:[],audios:[]},names:{},instr:'bandurria',editing:false};
 try{S.size=+localStorage.getItem('cn-size')||16}catch(e){}
-S.dinst='guitarra';S.cshow=true;try{S.dinst=localStorage.getItem('cn-dinst')||'guitarra';S.cshow=localStorage.getItem('cn-cshow')!=='0'}catch(e){}
+S.follow=true;S.dinst='guitarra';S.cshow=true;try{S.dinst=localStorage.getItem('cn-dinst')||'guitarra';S.cshow=localStorage.getItem('cn-cshow')!=='0'}catch(e){}
 S.fit=matchMedia('(max-width:700px)').matches;try{const f=localStorage.getItem('cn-fit');if(f!==null)S.fit=f==='1'}catch(e){}
 let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}catch(e){}
 /* cambios publicados para todos (versión GitHub): datos/cambios.json */
@@ -448,12 +459,13 @@ const canW=()=>!!S.db&&S.canWrite!==false;
 
 /* letra */
 function sheetHTML(text,n){
+  let ci=0;
   return text.split('\n').map(line=>{
     const k=lineKind(line);
     if(k==='b') return '<span class="bl"></span>';
     if(k==='c'){
       const t=transposeLine(line,n);
-      return `<span class="ln c">${t.split(/(\s+)/).map(p=>/^\s*$/.test(p)?esc(p):p.split(/([\-–—,|])/).map(x=>isChordTok(x)?`<b class="cht" data-c="${esc(x.replace(/^[(*]+|[).,*:]+$/g,''))}" tabindex="0" role="button">${esc(x)}</b>`:esc(x)).join('')).join('')}</span>`;
+      return `<span class="ln c">${t.split(/(\s+)/).map(p=>/^\s*$/.test(p)?esc(p):p.split(/([\-–—,|])/).map(x=>isChordTok(x)&&!JUNK_RE.test(x)&&parseChord(x)?`<b class="cht" data-i="${ci++}" data-c="${esc(x.replace(/^[(*]+|[).,*:]+$/g,''))}" tabindex="0" role="button">${esc(x)}</b>`:esc(x)).join('')).join('')}</span>`;
     }
     if(k==='s'){
       // label + inline chords e.g. "INTRO: C Am"
@@ -491,6 +503,22 @@ function panelLetra(){
   ${chordStrip(text)}
   <div class="sheetbox">${text.trim()?`<pre class="sheet" style="font-size:${S.size}px">${sheetHTML(text,S.transpose)}</pre>`:`<p class="empty" style="margin:12px">Esta canción todavía no tiene letra en el cancionero.${canW()?' Usa “Corregir letra o acordes” para agregarla.':''}</p>`}</div>`;
   fitSheet(); wireChords(p);
+  if(text.trim()&&chordsOf(text).length){
+    p.insertAdjacentHTML('beforeend',`<div class="lplay" role="group" aria-label="Tocar junto a la letra">
+      <button id="lplay" class="${PLAY.on?'on':''}" aria-label="${PLAY.on?'Detener':'Tocar junto a la letra'}">${PLAY.on?'■':'▶'}</button>
+      <div class="lpinfo"><b id="lpchord"></b><span>${PLAY.bpmFor===id?PLAY.bpm:tempoOf(id)} BPM · ${esc(meterOf(id))}</span></div>
+      <button class="lpb" id="lpdn" aria-label="Más lento">−</button><button class="lpb" id="lpup" aria-label="Más rápido">+</button>
+      <button class="lpb" id="lpbars" aria-label="Compases por acorde">${PLAY.bars||1}×</button>
+      <button class="lpb ${S.follow?'act':''}" id="lpfol" aria-pressed="${S.follow}" aria-label="Seguir la letra">⇣</button>
+      <button class="lpb ${PLAY.count?'act':''}" id="lpcnt" aria-pressed="${!!PLAY.count}" aria-label="Cuenta antes de empezar">1·2</button></div>`);
+    const upd=()=>{const sp=$('.lpinfo span');if(sp)sp.textContent=`${PLAY.bpm} BPM · ${meterOf(id)}`};
+    $('#lplay').onclick=()=>{if(PLAY.on){stopAudio();return} stopScroll(); prepPlay(id); wake(); startAudio(0)};
+    $('#lpdn').onclick=()=>{prepPlay(id);PLAY.bpm=Math.max(40,PLAY.bpm-4);upd()};
+    $('#lpup').onclick=()=>{prepPlay(id);PLAY.bpm=Math.min(240,PLAY.bpm+4);upd()};
+    $('#lpbars').onclick=e=>{PLAY.bars=(PLAY.bars||1)%4+1;e.target.textContent=PLAY.bars+'×';toast(PLAY.bars===1?'1 compás por acorde':PLAY.bars+' compases por acorde')};
+    $('#lpfol').onclick=e=>{S.follow=!S.follow;e.target.classList.toggle('act',S.follow);e.target.setAttribute('aria-pressed',S.follow);toast(S.follow?'La letra sigue la música':'La letra queda quieta')};
+    $('#lpcnt').onclick=e=>{PLAY.count=!PLAY.count;e.target.classList.toggle('act',PLAY.count);e.target.setAttribute('aria-pressed',PLAY.count);toast(PLAY.count?'Cuenta de un compás antes de empezar':'Sin cuenta')};
+  }
   const i=SONGS.findIndex(x=>x.id===id), pv=SONGS[i-1], nx=SONGS[i+1];
   p.insertAdjacentHTML('beforeend',`<nav class="songnav" aria-label="Otras canciones">${pv?`<a href="#s-${pv.id}">← ${esc(pv.title)}</a>`:'<span></span>'}${nx?`<a href="#s-${nx.id}">${esc(nx.title)} →</a>`:''}</nav>`);
   $('#fit').onclick=()=>{S.fit=!S.fit;try{localStorage.setItem('cn-fit',S.fit?'1':'0')}catch(e){};panelLetra()};
@@ -672,8 +700,9 @@ function schedStep(t){
 function tick(){
   const ac=ctx(), beat=60/PLAY.bpm/4;
   while(PLAY.next<ac.currentTime+0.12){
+    if(PLAY.pre>0){ if(PLAY.pre%4===0) countClick(PLAY.next,PLAY.pre===PLAY.pat.steps); PLAY.pre--; PLAY.next+=beat; continue }
     schedStep(PLAY.next); PLAY.next+=beat; PLAY.step++;
-    if(PLAY.step>=PLAY.pat.steps){PLAY.step=0;PLAY.idx++; if(PLAY.idx>=PLAY.seq.length){ if(PLAY.loop) PLAY.idx=0; else {setTimeout(stopAudio,beat*1000*PLAY.pat.steps);clearInterval(PLAY.timer);PLAY.timer=null;return} } }
+    if(PLAY.step>=PLAY.pat.steps){PLAY.step=0;PLAY.bar=(PLAY.bar||0)+1; if(PLAY.bar<(PLAY.bars||1)) continue; PLAY.bar=0;PLAY.idx++; if(PLAY.idx>=PLAY.seq.length){ if(PLAY.loop) PLAY.idx=0; else {setTimeout(stopAudio,beat*1000*PLAY.pat.steps);clearInterval(PLAY.timer);PLAY.timer=null;return} } }
   }
 }
 function ensureOut(){
@@ -691,23 +720,35 @@ function ensureOut(){
     const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=6500;lp.Q.value=.5;
     PLAY.gbus.connect(b1).connect(b2).connect(b3).connect(lp).connect(PLAY.out);
 }
+function countClick(t,first){const ac=ctx(),o=ac.createOscillator(),g=ac.createGain();o.frequency.value=first?1500:1000;g.gain.setValueAtTime(.25,t);g.gain.exponentialRampToValueAtTime(.001,t+.06);o.connect(g).connect(PLAY.out);o.start(t);o.stop(t+.08);
+  const n=Math.floor((PLAY.pat.steps-PLAY.pre)/4)+1; setTimeout(()=>{const l=$('#lpchord');if(l&&PLAY.on&&PLAY.pre>0)l.textContent='Cuenta '+n},Math.max(0,(t-ctx().currentTime)*1000))}
 function startAudio(from){
   const ac=ctx(); if(ac.state==='suspended') ac.resume();
   ensureOut();
   const g=genreOf(S.song); const meter=meterOf(S.song);
-  PLAY.pat=(PAT[g]&&(!metaOf(S.song).meter||metaOf(S.song).meter===GENRE[g]?.meter))?PAT[g]:PAT[meter]; PLAY.idx=from||0; PLAY.step=0; PLAY.next=ac.currentTime+.08; PLAY.on=true;
+  PLAY.pat=(PAT[g]&&(!metaOf(S.song).meter||metaOf(S.song).meter===GENRE[g]?.meter))?PAT[g]:PAT[meter]; PLAY.idx=from||0; PLAY.step=0; PLAY.bar=0; PLAY.pre=PLAY.count&&!from?PLAY.pat.steps:0; PLAY.next=ac.currentTime+.08; PLAY.on=true;
   clearInterval(PLAY.timer); PLAY.timer=setInterval(tick,25); tick(); updPlayBtn();
 }
 function stopAudio(){PLAY.on=false;clearInterval(PLAY.timer);PLAY.timer=null;updPlayBtn();document.querySelectorAll('.prog button.on').forEach(b=>b.classList.remove('on'))}
-function updPlayBtn(){const b=$('#play');if(b){b.textContent=PLAY.on?'■ Detener':'▶ Tocar';b.classList.toggle('primary',!PLAY.on)}}
-function markChord(i){document.querySelectorAll('.prog button').forEach((b,k)=>b.classList.toggle('on',k===i&&PLAY.on))}
+function updPlayBtn(){const b=$('#play');if(b){b.textContent=PLAY.on?'■ Detener':'▶ Tocar';b.classList.toggle('primary',!PLAY.on)}const l=$('#lplay');if(l){l.textContent=PLAY.on?'■':'▶';l.setAttribute('aria-label',PLAY.on?'Detener':'Tocar junto a la letra');l.classList.toggle('on',PLAY.on)}if(!PLAY.on){const c=$('#lpchord');if(c)c.textContent='';markChord(-1)}}
+function markChord(i){
+  document.querySelectorAll('.prog button').forEach((b,k)=>b.classList.toggle('on',k===i&&PLAY.on));
+  const prev=document.querySelector('.cht.now'); if(prev) prev.classList.remove('now');
+  document.querySelectorAll('.ln.nowl').forEach(l=>l.classList.remove('nowl'));
+  if(!PLAY.on) return;
+  const el=document.querySelector(`.cht[data-i="${i}"]`); if(!el) return;
+  el.classList.add('now'); const ln=el.closest('.ln'); if(ln){ln.classList.add('nowl'); const nx=ln.nextElementSibling; if(nx&&nx.classList.contains('ln')&&!nx.classList.contains('c')) nx.classList.add('nowl')}
+  if(S.follow){const r=el.getBoundingClientRect(), top=innerHeight*.32; if(r.top<top-40||r.top>innerHeight*.55) scrollBy({top:r.top-top,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'})}
+  const lab=$('#lpchord'); if(lab) lab.textContent=PLAY.seq[i]?PLAY.seq[i].name:'';
+}
+function prepPlay(id){PLAY.seq=chordsOf(songText(id)).map(c=>{if(!S.transpose)return c;return parseChord(transposeTok(c.name,S.transpose))||c});PLAY.bpm=PLAY.bpmFor===id?PLAY.bpm:tempoOf(id);PLAY.bpmFor=id}
 function markBeat(st){const dots=document.querySelectorAll('.beat i');const per=PLAY.pat.steps===12&&meterOf(S.song)==='6/8'?2:4;dots.forEach((d,k)=>d.classList.toggle('on',PLAY.on&&k===Math.floor(st/per)))}
 
 /* escuchar panel */
 function panelEscuchar(){
   const id=S.song, p=$('#panel'), text=songText(id);
   const seq=chordsOf(text).map(c=>{if(!S.transpose)return c;const t=transposeTok(c.name,S.transpose);return parseChord(t)||c});
-  PLAY.seq=seq; PLAY.bpm=tempoOf(id);
+  PLAY.seq=seq; PLAY.bpm=PLAY.bpmFor===id?PLAY.bpm:tempoOf(id); PLAY.bpmFor=id;
   const g=genreOf(id), meter=meterOf(id), beats=meter==='2/4'?2:meter==='3/4'?3:meter==='6/8'?6:4;
   const m=metaOf(id);
   p.innerHTML=`${roNotice()}
@@ -849,7 +890,7 @@ function chordStrip(text){
 function wireChords(p){
   p.querySelectorAll('[data-di]').forEach(b=>b.onclick=()=>{S.dinst=b.dataset.di;try{localStorage.setItem('cn-dinst',S.dinst)}catch(e){};panelLetra()});
   const t=$('#cstog'); if(t) t.onclick=()=>{S.cshow=!S.cshow;try{localStorage.setItem('cn-cshow',S.cshow?'1':'0')}catch(e){};panelLetra()};
-  p.querySelectorAll('.cht,.cbox').forEach(el=>{el.onclick=()=>showChord(el.dataset.c);el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showChord(el.dataset.c)}}});
+  p.querySelectorAll('.cht,.cbox').forEach(el=>{el.onclick=()=>{if(PLAY.on&&el.dataset.i!==undefined&&S.tab==='letra'){PLAY.idx=+el.dataset.i;PLAY.step=0;PLAY.bar=0;PLAY.pre=0;markChord(PLAY.idx);return}showChord(el.dataset.c)};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showChord(el.dataset.c)}}});
 }
 function showChord(name){
   let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
