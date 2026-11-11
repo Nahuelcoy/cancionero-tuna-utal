@@ -205,6 +205,13 @@ h2.sec{font-family:var(--f-display);font-size:1.25rem;margin:18px 0 8px;color:va
 "use strict";
 const SONGS = JSON.parse(document.getElementById('songs-data').textContent);
 const BYID = Object.fromEntries(SONGS.map(s=>[s.id,s]));
+const slugify=t=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const sortKey=t=>t.replace(/^[*]+/,'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,'');
+function applyNew(){
+  const nu=(typeof GLOBAL!=='undefined'&&GLOBAL.nuevas)||{}; let added=false;
+  for(const [id,n] of Object.entries(nu)){ if(!BYID[id]&&n&&n.title){const o={id,title:String(n.title).slice(0,120),genre:n.genre||'',text:String(n.text||'')};SONGS.push(o);BYID[id]=o;added=true} }
+  if(added) SONGS.sort((a,b)=>sortKey(a.title).localeCompare(sortKey(b.title)));
+}
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm = s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
@@ -306,6 +313,7 @@ let LOCAL={};try{LOCAL=JSON.parse(localStorage.getItem('cn-meta')||'{}')||{}}cat
 const ADMIN_MAIL='tunautal@utalca.cl', APP_URL='https://nahuelcoy.github.io/cancionero-tuna-utal/';
 const STANDALONE=!!window.CN_STANDALONE, REPO='Nahuelcoy/cancionero-tuna-utal', CPATH='datos/cambios.json';
 let GLOBAL={updatedAt:0,songs:{}};try{GLOBAL=JSON.parse(localStorage.getItem('cn-global')||'null')||GLOBAL}catch(e){}
+applyNew();
 let TOKEN='';try{TOKEN=localStorage.getItem('cn-gh-token')||''}catch(e){}
 const isAdmin=()=>STANDALONE&&!!TOKEN;
 function gOf(id){return (GLOBAL.songs&&GLOBAL.songs[id])||{}}
@@ -314,11 +322,21 @@ async function loadGlobal(){
   if(!STANDALONE||!location.protocol.startsWith('http')) return;
   try{const r=await fetch(CPATH+'?t='+Date.now(),{cache:'no-store'}); if(!r.ok) return; const j=await r.json();
     if((j.updatedAt||0)>(GLOBAL.updatedAt||0)&&GLOBAL.updatedAt){const ch=Object.entries(j.songs||{}).filter(([k,v])=>(v.at||0)>(GLOBAL.updatedAt||0)).map(([k])=>BYID[k]?.title).filter(Boolean);toast(ch.length?`Cancionero actualizado: ${ch.slice(0,2).join(', ')}${ch.length>2?' y '+(ch.length-2)+' más':''}`:'Cancionero actualizado')}
-    if((j.updatedAt||0)>=(GLOBAL.updatedAt||0)){GLOBAL=j;try{localStorage.setItem('cn-global',JSON.stringify(j))}catch(e){}; if(!S.editing&&!busy()){S.song?renderSong():renderList()}}}catch(e){}
+    if((j.updatedAt||0)>=(GLOBAL.updatedAt||0)){GLOBAL=j;applyNew();try{localStorage.setItem('cn-global',JSON.stringify(j))}catch(e){}; if(!S.editing&&!busy()){S.song?renderSong():renderList()}}}catch(e){}
 }
 const b64=str=>{const u=new TextEncoder().encode(str);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
 const unb64=b=>new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\s/g,'')),c=>c.charCodeAt(0)));
 async function gh(path,opt){const r=await fetch('https://api.github.com/repos/'+REPO+path,{...opt,headers:{'Authorization':'Bearer '+TOKEN,'Accept':'application/vnd.github+json',...(opt&&opt.headers||{})}});if(!r.ok){const e=new Error('gh '+r.status);e.status=r.status;throw e}return r.json()}
+async function publishAll(mut,label){
+  for(let attempt=0;attempt<2;attempt++){
+    let sha=null, cur={updatedAt:0,songs:{}};
+    try{const f=await gh('/contents/'+CPATH+'?ref=main');sha=f.sha;cur=JSON.parse(unb64(f.content))}catch(e){if(e.status!==404) throw e}
+    cur.songs=cur.songs||{}; cur.nuevas=cur.nuevas||{}; const now=Date.now(); mut(cur,now); cur.updatedAt=now;
+    try{await gh('/contents/'+CPATH,{method:'PUT',body:JSON.stringify({message:label,content:b64(JSON.stringify(cur,null,1)),branch:'main',...(sha?{sha}:{})})});
+      GLOBAL=cur;applyNew();try{localStorage.setItem('cn-global',JSON.stringify(cur))}catch(e){};return}
+    catch(e){if(e.status===409&&attempt===0) continue; throw e}
+  }
+}
 async function publishChange(id,patch,label){
   for(let attempt=0;attempt<2;attempt++){
     let sha=null, cur={updatedAt:0,songs:{}};
@@ -371,11 +389,100 @@ function checkApproval(){
   const no=$('#apno'); if(no) no.onclick=()=>{clear();$('#cpop').hidden=true;toast('Video rechazado: no se publicó')};
   const ad=$('#apadm'); if(ad) ad.onclick=adminSheet;
 }
+function genreFrom(g,title){
+  const G=(g||'').toUpperCase();
+  const map=[['PASODOBLE','Pasodoble'],['BOLERO','Bolero'],['VALS','Vals'],['TONADA','Tonada'],['FOX','Foxtrot'],['CHA','Cha cha chá'],['RUMBA','Rumba'],['CUMBIA','Cumbia'],['BALADA','Balada'],['HUAPANGO','Huapango'],['CABALES','Cabales'],['SALSA','Salsa'],['ISA','Isa'],['CUECA','Cueca'],['HABANERA','Habanera'],['TANGO','Tango'],['MARCHA','Marcha'],['POLCA','Polca'],['JOTA','Jota'],['RANCHERA','Ranchera']];
+  for(const [k,n] of map) if(G.includes(k)) return n;
+  return '';
+}
+async function loadJSZip(){if(window.JSZip) return window.JSZip;await new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';sc.onload=ok;sc.onerror=ko;document.head.appendChild(sc)});return window.JSZip}
+async function parseDocx(file){
+  const JSZip=await loadJSZip(); const zip=await JSZip.loadAsync(file);
+  const xml=await zip.file('word/document.xml').async('string');
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const ptext=p=>{let o='';const walk=n=>{for(const c of n.childNodes){if(c.nodeType!==1)continue;const ln=c.localName;
+      if(ln==='t')o+=c.textContent;else if(ln==='tab'&&c.parentNode.localName==='r')o+='\t';else if(ln==='br'){const ty=c.getAttributeNS(W,'type');if(ty!=='page'&&ty!=='column')o+='\n'}
+      else if(ln!=='pPr'&&ln!=='rPr'&&ln!=='instrText'&&ln!=='delText')walk(c)}};walk(p);return o};
+  const isHead=p=>{const st=p.getElementsByTagNameNS(W,'pStyle')[0];const v=st?st.getAttributeNS(W,'val'):'';return /^(T[ií]?tulo|Ttulo|Heading)1$/i.test(v)&&ptext(p).trim()};
+  const songs=[];let cur=null;
+  const kids=n=>[...n.childNodes].filter(c=>c.nodeType===1);
+  const body=doc.getElementsByTagNameNS(W,'body')[0];
+  for(const el of kids(body)){
+    if(el.localName==='p'){ if(isHead(el)){cur={title:ptext(el).trim().replace(/^\*+/,'').trim(),lines:[]};songs.push(cur);continue} if(cur) cur.lines.push(...ptext(el).split('\n')) }
+    else if(el.localName==='sdt'){ /* índice: se ignora */ }
+    else if(el.localName==='tbl'){
+      const rows=kids(el).filter(r=>r.localName==='tr').map(r=>kids(r).filter(c=>c.localName==='tc').map(c=>[...c.getElementsByTagNameNS(W,'p')]));
+      for(const row of rows) for(const cell of row) for(const p of cell) if(isHead(p)){cur={title:ptext(p).trim().replace(/^\*+/,'').trim(),lines:[]};songs.push(cur)}
+      if(!cur) continue;
+      const ncol=Math.max(0,...rows.map(r=>r.length));
+      const longc=new Set();rows.forEach(r=>r.forEach((c,i)=>{if(c.some(p=>ptext(p).trim().length>20))longc.add(i)}));
+      const big=rows.some(r=>r.some(c=>c.length>4))||(ncol<=3&&longc.size>=2);
+      if(big){for(let ci=0;ci<ncol;ci++){for(const r of rows){if(r[ci]) for(const p of r[ci]){if(isHead(p))continue;cur.lines.push(...ptext(p).split('\n'))}}cur.lines.push('')}}
+      else{
+        const grid=[...el.getElementsByTagNameNS(W,'gridCol')].map(g=>+g.getAttributeNS(W,'w')||1500);
+        const R2=kids(el).filter(r=>r.localName==='tr').map(r=>{let pos=0;return kids(r).filter(c=>c.localName==='tc').map(c=>{const gs=c.getElementsByTagNameNS(W,'gridSpan')[0];const sp=gs?+gs.getAttributeNS(W,'val')||1:1;const o={pos,t:[...c.getElementsByTagNameNS(W,'p')].map(ptext)};pos+=sp;return o})});
+        const starts=[...new Set(R2.flatMap(r=>r.filter(c=>c.t.some(x=>x.trim().length>20)).map(c=>c.pos)))].sort((a,b)=>a-b);
+        const split=starts.length>=2&&starts[starts.length-1]-starts[0]>=2?starts[starts.length-1]:null;
+        const render=(lo,hi)=>{const out=[];for(const row of R2){const cs=row.filter(c=>c.pos>=lo&&c.pos<hi);const n=Math.max(0,...cs.map(c=>c.t.length));
+          for(let k=0;k<n;k++){let line='';for(const c of cs){const st=Math.floor(grid.slice(lo,c.pos).reduce((a,b)=>a+b,0)/100);line=line.length<st?line.padEnd(st):(line?line+' ':line);line+=c.t[k]||''}out.push(line.trimEnd())}}return out};
+        if(split===null) cur.lines.push(...render(0,999)); else cur.lines.push(...render(0,split),'',...render(split,999));
+      }
+    }
+  }
+  return songs.map(s=>{
+    let L=s.lines.map(l=>l.replace(/\u00a0/g,' ').trimEnd()), genre='';
+    for(let i=0;i<Math.min(6,L.length);i++){const l=L[i].trim();if(l&&l===l.toUpperCase()&&genreFrom(l)&&l.length<60){genre=genreFrom(l);L.splice(i,1);break}}
+    const out=[];for(const l of L){if(!l.trim()){if(out.length&&out[out.length-1]==='')continue;out.push('');continue} if(l.trim().replace(/^\*+/,'').toUpperCase()===s.title.toUpperCase())continue; out.push(l)}
+    while(out[0]==='')out.shift();while(out.length&&out[out.length-1]==='')out.pop();
+    return {id:slugify(s.title),title:s.title,genre,text:out.join('\n')};
+  }).filter(s=>s.id);
+}
+const normT=t=>String(t||'').toLowerCase().split(/\s+/).filter(Boolean).sort().join(' ');
+async function importDocx(file){
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Cancionero actualizado</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div><p class="note" id="imsg">Leyendo ${esc(file.name)}…</p>`);
+  let list;
+  try{list=await parseDocx(file)}catch(e){$('#imsg').textContent='No pude leer el archivo. Revisa que sea un Word (.docx) y que tengas internet.';return}
+  if(!list.length){$('#imsg').textContent='No encontré canciones. Los títulos deben tener el estilo "Título 1", como en el cancionero actual.';return}
+  const nuevas=list.filter(s=>!BYID[s.id]);
+  const cambiadas=list.filter(s=>BYID[s.id]&&normT(s.text)&&normT(s.text)!==normT(songText(s.id)));
+  const iguales=list.length-nuevas.length-cambiadas.length;
+  const row=(s,k)=>`<label class="item" style="align-items:center"><input type="checkbox" data-k="${k}" data-id="${esc(s.id)}" checked style="accent-color:var(--wine)"><span class="main"><b>${esc(s.title)}</b><span class="meta"> ${esc(s.genre||'')}</span></span></label>`;
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Cancionero actualizado</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p class="note" style="margin:0 0 8px">${list.length} canciones en el archivo: <b>${nuevas.length} nuevas</b>, <b>${cambiadas.length} con cambios</b>, ${iguales} iguales. Elige qué publicar.</p>
+    <div style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:6px">
+    ${nuevas.length?`<h2 class="sec" style="margin:4px 0">Nuevas</h2>${nuevas.map(s=>row(s,'n')).join('')}`:''}
+    ${cambiadas.length?`<h2 class="sec" style="margin:4px 0">Con cambios en la letra o acordes</h2>${cambiadas.map(s=>row(s,'c')).join('')}`:''}
+    ${!nuevas.length&&!cambiadas.length?'<p class="empty">No hay nada nuevo: el archivo es igual al cancionero publicado.</p>':''}</div>
+    <div class="bar" style="margin-top:12px"><button class="btn primary" id="impok" ${nuevas.length||cambiadas.length?'':'disabled'}>Publicar para todos</button></div><p class="note" id="imsg" style="margin:4px 0 0"></p>`);
+  const byId=Object.fromEntries(list.map(s=>[s.id,s]));
+  $('#impok').onclick=async()=>{
+    const sel=[...document.querySelectorAll('#cpop input[data-k]:checked')].map(i=>({k:i.dataset.k,s:byId[i.dataset.id]}));
+    if(!sel.length){toast('No elegiste ninguna canción');return}
+    $('#impok').disabled=true;$('#imsg').textContent='Publicando…';
+    try{await publishAll((cur,now)=>{for(const {k,s} of sel){ if(k==='n') cur.nuevas[s.id]={title:s.title,genre:s.genre,text:s.text,at:now}; else cur.songs[s.id]={...(cur.songs[s.id]||{}),text:s.text,at:now,note:'Desde el cancionero actualizado'} }},`Cancionero actualizado: ${sel.filter(x=>x.k==='n').length} nuevas, ${sel.filter(x=>x.k==='c').length} con cambios`);
+      $('#cpop').hidden=true;toast(`Publicado: ${sel.length} canciones. Les llega a todos en 1–2 minutos`);renderList()}
+    catch(e){$('#impok').disabled=false;$('#imsg').textContent=pubError(e)}
+  };
+}
+function songForm(){
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Agregar una canción</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <div class="field"><label for="ns-t">Título</label><input id="ns-t" maxlength="120" placeholder="Ej.: Fonseca"></div>
+    <div class="field" style="margin-top:8px"><label for="ns-g">Estilo</label><select id="ns-g">${['',...GENRES].map(x=>`<option value="${esc(x)}">${esc(x||'Sin definir')}</option>`).join('')}</select></div>
+    <div class="field" style="margin-top:8px"><label for="ns-x">Letra y acordes (acordes en la línea de arriba del verso)</label><textarea id="ns-x" rows="10" wrap="off" style="font-family:var(--f-sheet);white-space:pre;overflow-x:auto"></textarea></div>
+    <div class="bar" style="margin-top:10px"><button class="btn primary" id="ns-ok">Publicar canción</button></div>`);
+  $('#ns-ok').onclick=async()=>{const t=$('#ns-t').value.trim(), x=$('#ns-x').value.replace(/\s+$/,''), g=$('#ns-g').value; const id=slugify(t);
+    if(!t||!id){toast('Escribe el título');return} if(BYID[id]){toast('Ya existe una canción con ese título');return} if(!x.trim()){toast('Escribe la letra');return}
+    $('#ns-ok').disabled=true;
+    try{await publishAll((cur,now)=>{cur.nuevas[id]={title:t.toUpperCase(),genre:g,text:x,at:now}},'Canción nueva: '+t);$('#cpop').hidden=true;toast('Canción publicada: les llega a todos en 1–2 minutos');location.hash='s-'+id}
+    catch(e){$('#ns-ok').disabled=false;toast(pubError(e))}};
+}
 function adminSheet(){
   let pop=$('#cpop'); if(!pop){pop=document.createElement('div');pop.id='cpop';pop.className='cpop';document.body.appendChild(pop)}
   pop.innerHTML=`<div class="cpin" role="dialog" aria-label="Administrador" style="align-items:stretch;max-width:440px"><div class="cptop"><b style="font-family:var(--f-display);font-size:1.3rem;color:var(--wine)">Administrador</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
     <p class="note" style="margin:0 0 8px">${TOKEN?'Este celular puede publicar cambios para todos. Lo que corrijas (letra, acordes, estilo, compás, tempo) les llega a todos en 1–2 minutos, la próxima vez que abran la app con internet.':'Pega la clave de GitHub para que este celular pueda publicar cambios para todos. Solo la necesita quien administra el cancionero.'}</p>
     <div class="field"><label for="tok">Clave de GitHub (token)</label><input id="tok" type="password" autocomplete="off" value="${esc(TOKEN)}" placeholder="github_pat_…"></div>
+    ${TOKEN?`<div class="list" style="margin:10px 0"><button class="btn" id="addsong">＋ Agregar una canción</button><label class="btn" style="text-align:center;cursor:pointer">⬆ Subir cancionero actualizado (.docx)<input id="docxin" type="file" accept=".docx" hidden></label></div>`:''}
     <div class="bar" style="margin-top:10px"><button class="btn primary" id="toksave">Guardar y probar</button>${TOKEN?'<button class="btn" id="tokdel">Quitar clave</button>':''}</div>
     <p class="note" id="tokmsg" style="margin:6px 0 0"></p></div>`;
   pop.hidden=false; $('#cpx').onclick=()=>pop.hidden=true; pop.onclick=e=>{if(e.target===pop)pop.hidden=true};
@@ -383,6 +490,8 @@ function adminSheet(){
     TOKEN=v;m.textContent='Probando…';try{const r=await gh('');if(!r.permissions||!r.permissions.push) throw Object.assign(new Error('np'),{status:403});
       try{localStorage.setItem('cn-gh-token',v)}catch(e){};m.textContent='Listo: este celular ya puede publicar cambios para todos.';toast('Modo administrador activado');setTimeout(()=>{pop.hidden=true;S.song?renderSong():renderList()},900)}
     catch(e){TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(er){};m.textContent=pubError(e)}};
+  const as=$('#addsong'); if(as) as.onclick=()=>songForm();
+  const dx=$('#docxin'); if(dx) dx.onchange=()=>{const f=dx.files[0]; if(f) importDocx(f)};
   const d=$('#tokdel'); if(d) d.onclick=()=>{TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(e){};toast('Clave quitada de este celular');pop.hidden=true;S.song?renderSong():renderList()};
 }
 function meterOf(id){return metaOf(id).meter||GENRE[genreOf(id)]?.meter||'4/4'}
