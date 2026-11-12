@@ -125,6 +125,14 @@ h2.sec{font-family:var(--f-display);font-size:1.25rem;margin:18px 0 8px;color:va
 .shape svg{display:block}
 .shape b{font-family:var(--f-sheet);color:var(--chord)}
 .hist{font-size:.88rem}
+.diff{font-family:var(--f-sheet);font-size:13px;white-space:pre;overflow-x:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin:0;max-height:46vh;overflow-y:auto}
+.diff span{display:block;padding:0 4px}
+.diff .dm,.dm{background:#fbe3e3;color:#9b1c1c;text-decoration:line-through}
+.diff .dp,.dp{background:#e2f4e4;color:#1d6b2c}
+.diff .dg{color:var(--muted);text-align:center}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .dm{background:#4a1d1f;color:#ffb4b4}:root:not([data-theme="light"]) .dp{background:#173a22;color:#a6e3b2}}
+:root[data-theme="dark"] .dm{background:#4a1d1f;color:#ffb4b4}:root[data-theme="dark"] .dp{background:#173a22;color:#a6e3b2}
+table.mini{border-collapse:collapse;width:100%;font-size:.92rem}table.mini td,table.mini th{border-bottom:1px solid var(--line);padding:6px;text-align:left}
 .cht{cursor:pointer;border-radius:3px;transition:background .15s,color .15s}
 .cht.now{background:var(--chord);color:var(--surface)!important;box-shadow:0 0 0 2px var(--chord)}
 .ln.nowl:not(.c){background:linear-gradient(transparent 55%,var(--gold-soft) 55%)}
@@ -391,7 +399,144 @@ function requestDelete(id){
     <p class="note" style="margin:0 0 10px">Solo el administrador (${ADMIN_MAIL}) puede eliminar canciones. Mándale el pedido; si lo aprueba, la canción se quita para todos.</p>
     <div class="list"><a class="btn primary" style="text-align:center;text-decoration:none" href="${esc(mail)}">✉ Enviar por correo</a><a class="btn" style="text-align:center;text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a></div>`);
 }
+/* ===== Propuestas de los tunos (se aprueban en el celular del administrador) ===== */
+let MYNAME='';try{MYNAME=localStorage.getItem('cn-nombre')||''}catch(e){}
+const canPropose=()=>STANDALONE&&!isAdmin();
+async function zip(str){if(!window.CompressionStream) return 'r'+b64u(str);const cs=new Blob([str]).stream().pipeThrough(new CompressionStream('deflate-raw'));const buf=new Uint8Array(await new Response(cs).arrayBuffer());let b='';for(let i=0;i<buf.length;i+=8192)b+=String.fromCharCode.apply(null,buf.subarray(i,i+8192));return 'z'+btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+async function unzip(t){const k=t[0],d=t.slice(1);if(k==='r') return JSON.stringify(unb64u(d));const bin=atob(d.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((d.length+3)%4));const u=Uint8Array.from(bin,c=>c.charCodeAt(0));const ds=new Blob([u]).stream().pipeThrough(new DecompressionStream('deflate-raw'));return await new Response(ds).text()}
+const PTYPE={texto:'Corrección de letra o acordes',tab:'Tablatura',estilo:'Estilo y tempo',nueva:'Canción nueva'};
+function propLabel(P){if(P.t==='nueva') return P.songs.length===1?'Canción nueva: '+P.songs[0].title:P.songs.length+' canciones nuevas o corregidas';return (PTYPE[P.t]||'Propuesta')+(P.s&&BYID[P.s]?': '+BYID[P.s].title:'')+(P.t==='tab'?' ('+(TUN[P.inst]?.name||'')+')':'')}
+function askName(){return new Promise(res=>{
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">¿Quién propone?</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+   <div class="field"><label for="nm">Tu nombre o apodo de tuno</label><input id="nm" maxlength="40" value="${esc(MYNAME)}" placeholder="Ej.: Pedro «Guitarrón»"></div>
+   <div class="bar" style="margin-top:10px"><button class="btn primary" id="nmok">Continuar</button></div>`);
+  $('#cpx').onclick=()=>{$('#cpop').hidden=true;res(null)};
+  $('#nmok').onclick=()=>{const v=$('#nm').value.trim();if(!v){toast('Escribe tu nombre o apodo');return}MYNAME=v;try{localStorage.setItem('cn-nombre',v)}catch(e){};res(v)}})}
+async function sendProposal(P){
+  const by=await askName(); if(!by) return; P.by=by; P.at=Date.now(); P.v=1;
+  const code=await zip(JSON.stringify(P)), link=APP_URL+'?p='+code, label=propLabel(P);
+  const short=link.length<=1800, waOk=link.length<=30000;
+  const body=`${label}\nPropuesta por: ${by}${P.note?'\nComentario: '+P.note:''}\n\nPara revisarla y aprobarla, abre este link en el celular de administrador:\n${link}`;
+  const mail=`mailto:${ADMIN_MAIL}?subject=${encodeURIComponent('Propuesta para el cancionero: '+label)}&body=${encodeURIComponent(short?body:`${label}\nPropuesta por: ${by}\n\nAdjunto el archivo de la propuesta (.cancionero). Ábrelo en la app con ⚙ Administrador → Abrir propuesta.`)}`;
+  const wa='https://wa.me/?text='+encodeURIComponent(`📝 ${body}`);
+  const file=new File([JSON.stringify(P)],`propuesta-${slugify(label).slice(0,40)}.cancionero`,{type:'application/json'});
+  const canShareFile=!!(navigator.canShare&&navigator.canShare({files:[file]}));
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Enviar para aprobación</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+   <p style="margin:0 0 4px"><b>${esc(label)}</b></p><p class="note" style="margin:0 0 10px">Le llega al administrador (${ADMIN_MAIL}). Cuando la apruebe, el cambio aparece para todos.</p>
+   <div class="list">
+    ${short?`<a class="btn primary" style="text-align:center;text-decoration:none" href="${esc(mail)}" id="pmail">✉ Enviar por correo</a>`:''}
+    ${waOk?`<a class="btn ${short?'':'primary'}" style="text-align:center;text-decoration:none" href="${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>`:''}
+    ${canShareFile?`<button class="btn ${!short&&!waOk?'primary':''}" id="pshare">Compartir como archivo</button>`:''}
+    <button class="btn" id="pdown">Descargar archivo de la propuesta</button>
+    ${waOk?'<button class="btn" id="pcopy">Copiar el link</button>':''}</div>
+   <p class="note" style="margin:8px 0 0">${short?'':'La propuesta es grande: mándala por WhatsApp o como archivo adjunto a '+ADMIN_MAIL+'.'}</p>`);
+  const sh=$('#pshare'); if(sh) sh.onclick=()=>navigator.share({files:[file],title:label,text:`${label} — propuesta por ${by}. Para: ${ADMIN_MAIL}`}).then(()=>toast('Propuesta enviada'),()=>{});
+  $('#pdown').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);toast('Archivo descargado: adjúntalo en un correo a '+ADMIN_MAIL)};
+  const cp=$('#pcopy'); if(cp) cp.onclick=()=>navigator.clipboard.writeText(body).then(()=>toast('Copiado: pégalo en un correo o WhatsApp al administrador'),()=>toast('No se pudo copiar'));
+  const pm=$('#pmail'); if(pm) pm.addEventListener('click',()=>setTimeout(()=>toast('Gracias: queda pendiente de aprobación'),400));
+}
+/* diferencia línea por línea (LCS) */
+function diffLines(a,b){a=a.split('\n');b=b.split('\n');const n=a.length,m=b.length;if(n*m>400000) return [...a.map(x=>['-',x]),...b.map(x=>['+',x])];
+  const L=Array.from({length:n+1},()=>new Uint16Array(m+1));for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=a[i]===b[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
+  const out=[];let i=0,j=0;while(i<n&&j<m){if(a[i]===b[j]){out.push(['=',a[i]]);i++;j++}else if(L[i+1][j]>=L[i][j+1])out.push(['-',a[i++]]);else out.push(['+',b[j++]])}while(i<n)out.push(['-',a[i++]]);while(j<m)out.push(['+',b[j++]]);return out}
+function diffHTML(a,b){const d=diffLines(a||'',b||'');const ch=d.filter(x=>x[0]!=='=').length;
+  const keep=new Set();d.forEach((x,k)=>{if(x[0]!=='=')for(let q=k-2;q<=k+2;q++)keep.add(q)});
+  let out='',gap=false;d.forEach((x,k)=>{if(!keep.has(k)){if(!gap){out+='<span class="dg">⋯</span>';gap=true}return}gap=false;out+=`<span class="d${x[0]==='='?'e':x[0]==='-'?'m':'p'}">${esc(x[1])||' '}</span>`});
+  return {html:`<pre class="diff">${out}</pre>`,changes:ch}}
+async function openProposal(P){
+  const clear=()=>{try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}};
+  if(!P||!P.t){toast('No pude leer la propuesta');clear();return}
+  const head=`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Propuesta por aprobar</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p style="margin:0"><b>${esc(propLabel(P))}</b></p><p class="note" style="margin:2px 0 8px">Propuesta por ${esc(P.by||'un tuno')}${P.at?' · '+fmtDate(P.at):''}${P.note?`<br>“${esc(P.note)}”`:''}</p>`;
+  let body='', apply=null;
+  if((P.t==='texto'||P.t==='tab'||P.t==='estilo')&&!BYID[P.s]){sheet(head+'<p class="notice">Esa canción ya no está en el cancionero.</p>');clear();return}
+  if(P.t==='texto'){const d=diffHTML(songText(P.s),P.text);body=d.changes?d.html+'<p class="note" style="margin:4px 0 0"><span class="dm" style="padding:0 4px">quitado</span> <span class="dp" style="padding:0 4px">agregado</span></p>':'<p class="notice">No hay diferencias con la versión publicada.</p>';
+    apply=()=>publishChange(P.s,prev=>({text:P.text,prev:prev.text??BYID[P.s].text,note:P.note||'',por:P.by}),'Corrección de '+P.by+': '+BYID[P.s].title)}
+  else if(P.t==='tab'){const curT=((gOf(P.s).tabs)||{})[P.inst];const d=diffHTML(curT||'',P.text);body=(curT?'':'<p class="note" style="margin:0 0 4px">Primera tablatura de esta canción para '+esc(TUN[P.inst]?.name||'')+'.</p>')+d.html;
+    apply=()=>publishChange(P.s,prev=>({tabs:{...(prev.tabs||{}),[P.inst]:P.text},tabsBy:{...(prev.tabsBy||{}),[P.inst]:{por:P.by,at:Date.now(),note:P.note||''}}}),'Tablatura de '+P.by+': '+BYID[P.s].title)}
+  else if(P.t==='estilo'){const m=metaOf(P.s);body=`<table class="mini"><tr><th></th><th>Ahora</th><th>Propuesta</th></tr><tr><td>Estilo</td><td>${esc(genreOf(P.s)||'—')}</td><td><b>${esc(P.genre||'—')}</b></td></tr><tr><td>Compás</td><td>${esc(meterOf(P.s))}</td><td><b>${esc(P.meter)}</b></td></tr><tr><td>Tempo</td><td>${tempoOf(P.s)}</td><td><b>${+P.tempo}</b></td></tr></table>`;
+    apply=()=>publishChange(P.s,{genre:String(P.genre||'').slice(0,40),meter:METERS[P.meter]?P.meter:'4/4',tempo:Math.max(40,Math.min(240,+P.tempo||100)),por:P.by},'Estilo de '+P.by+': '+BYID[P.s].title)}
+  else if(P.t==='nueva'){const L=(P.songs||[]).filter(x=>x&&x.title&&x.text);
+    body=`<div style="max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:8px">${L.map((x,k)=>{const id=slugify(x.title);const ex=BYID[id];const d=ex?diffHTML(songText(id),x.text):null;
+      return `<details class="item" style="display:block"><summary style="cursor:pointer"><label onclick="event.stopPropagation()"><input type="checkbox" data-k="${k}" checked style="accent-color:var(--wine)"></label> <b>${esc(x.title)}</b> <span class="pill">${ex?(d.changes?'corrige una existente':'sin cambios'):'nueva'}</span> <span class="meta">${esc(x.genre||'')}</span></summary>${ex?d.html:`<pre class="diff">${x.text.split('\n').map(l=>`<span class="dp">${esc(l)||' '}</span>`).join('')}</pre>`}</details>`}).join('')}</div>`;
+    apply=()=>{const sel=[...document.querySelectorAll('#cpop input[data-k]:checked')].map(i=>L[+i.dataset.k]);if(!sel.length) throw Object.assign(new Error('nada'),{status:0,nada:1});
+      return publishAll((cur,now)=>{for(const x of sel){const id=slugify(x.title);if(ALL[id]&&!(cur.nuevas&&cur.nuevas[id])){cur.songs[id]={...(cur.songs[id]||{}),text:x.text,prev:(cur.songs[id]||{}).text??ALL[id].text,at:now,por:P.by,note:'Desde propuesta'}}else{cur.nuevas[id]={title:String(x.title).toUpperCase().slice(0,120),genre:x.genre||'',text:x.text,at:now,por:P.by}}}},`Canciones propuestas por ${P.by}: ${sel.length}`)}}
+  const pop=sheet(head+body+(isAdmin()?`<div class="bar" style="margin-top:12px"><button class="btn primary" id="pok">Aprobar y publicar</button><button class="btn" id="pno">Rechazar</button></div>`
+    :`<p class="notice" style="margin:12px 0 0">Solo el administrador puede aprobar propuestas. Si eres el administrador, activa tu clave en <button class="btn small" id="apadm">⚙ Administrador</button> y vuelve a abrir el link.</p>`));
+  pop.querySelector('.cpin').style.maxWidth='620px';
+  const ok=$('#pok'); if(ok) ok.onclick=async()=>{ok.disabled=true;try{await apply();clear();pop.hidden=true;toast('Aprobada: les llega a todos en 1–2 minutos');if(P.s){location.hash='s-'+P.s;route();if(P.t==='tab'){S.tab='tablatura';S.instr=P.inst;renderSong()}}else{location.hash='';route()}}catch(e){ok.disabled=false;toast(e.nada?'Elige al menos una canción':pubError(e))}};
+  const no=$('#pno'); if(no) no.onclick=()=>{clear();pop.hidden=true;toast('Propuesta rechazada: no se publicó nada')};
+  const ad=$('#apadm'); if(ad) ad.onclick=adminSheet;
+}
+function pickProposalFile(){const i=document.createElement('input');i.type='file';i.accept='.cancionero,.json,application/json';i.onchange=async()=>{const f=i.files[0];if(!f)return;try{openProposal(JSON.parse(await f.text()))}catch(e){toast('Ese archivo no es una propuesta del cancionero')}};i.click()}
+/* Word o PDF de un tuno -> propuesta */
+async function loadPdf(){if(window.__pdfjs) return window.__pdfjs;const m=await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs');m.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';window.__pdfjs=m;return m}
+async function parsePdf(file){
+  const pdfjs=await loadPdf();const doc=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;const lines=[];
+  const build=(items,minX)=>{const rows=new Map();for(const i of items){const y=Math.round(i.y/2)*2;if(!rows.has(y))rows.set(y,[]);rows.get(y).push(i)}
+    const out=[];let prevY=null;for(const y of [...rows.keys()].sort((a,b)=>b-a)){const it=rows.get(y).sort((a,b)=>a.x-b.x);const h=Math.max(...it.map(i=>i.h));const sw=h*.27;let line='',end=null;
+      for(const i of it){if(end===null){line=' '.repeat(Math.max(0,Math.round((i.x-minX)/sw)))}else{const gap=i.x-end;if(gap>h*.12&&!line.endsWith(' ')&&!i.s.startsWith(' '))line+=' '.repeat(Math.max(1,Math.round(gap/sw)))}line+=i.s;end=i.x+(i.w||0)}
+      if(prevY!==null&&prevY-y>h*2.2)out.push({t:'',h:0});out.push({t:line.replace(/\s+$/,''),h,y});prevY=y}return out};
+  for(let n=1;n<=doc.numPages;n++){const pg=await doc.getPage(n);const tc=await pg.getTextContent();const W=pg.getViewport({scale:1}).width;
+    const items=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({x:i.transform[4],y:i.transform[5],s:i.str,h:Math.abs(i.transform[3])||i.height||10,w:i.width||0}));
+    if(!items.length) continue;
+    /* ¿la página está en dos columnas? busca un canal vertical libre cerca del centro */
+    let gut=null,best=1e9;for(let g=W*.33;g<=W*.67;g+=2){const c=items.filter(i=>i.x<g&&i.x+i.w>g).length;if(c<best){best=c;gut=g}}
+    const left=items.filter(i=>i.x+i.w<=gut).length,right=items.filter(i=>i.x>=gut).length;
+    const two=gut!==null&&left>items.length*.12&&right>items.length*.12&&best<=Math.max(2,items.length*.04);
+    if(!two){lines.push(...build(items,Math.min(...items.map(i=>i.x))));lines.push({t:'',h:0});continue}
+    /* filas que cruzan el canal (títulos) separan bandas; en cada banda: columna izquierda y luego derecha */
+    const ys=[...new Set(items.map(i=>Math.round(i.y/2)*2))].sort((a,b)=>b-a);
+    const full=new Set(ys.filter(y=>items.some(i=>Math.round(i.y/2)*2===y&&i.x<gut&&i.x+i.w>gut)));
+    let band=[];const flush=()=>{if(!band.length)return;const L=items.filter(i=>band.includes(Math.round(i.y/2)*2)&&i.x+i.w<=gut),R=items.filter(i=>band.includes(Math.round(i.y/2)*2)&&i.x+i.w>gut);
+      if(L.length)lines.push(...build(L,Math.min(...L.map(i=>i.x))));if(R.length){lines.push({t:'',h:0});lines.push(...build(R,Math.min(...R.map(i=>i.x))))}band=[]};
+    for(const y of ys){if(full.has(y)){flush();const F=items.filter(i=>Math.round(i.y/2)*2===y);lines.push(...build(F,Math.min(...F.map(i=>i.x))))}else band.push(y)}
+    flush();lines.push({t:'',h:0})}
+  /* quita encabezados y pies que se repiten en muchas páginas, y números de página */
+  {const cnt=new Map();lines.forEach(l=>{const k=l.t.trim().toUpperCase();if(k)cnt.set(k,(cnt.get(k)||0)+1)});const lim=Math.max(3,doc.numPages*.2);
+   for(const l of lines){const k=l.t.trim().toUpperCase();if(k&&((cnt.get(k)>=lim&&lineKind(k)!=='c')||/^\d{1,3}$/.test(k))){l.t='';l.h=0}}}
+  const hs=lines.filter(l=>l.t.trim()).map(l=>l.h).sort((a,b)=>a-b);const med=hs[Math.floor(hs.length/2)]||10;
+  const minIndent=0;
+  const songs=[];let cur=null;
+  for(const l of lines){const t=l.t.slice(Math.max(0,minIndent));const tr=t.trim();
+    if(tr&&l.h>med*1.3&&tr===tr.toUpperCase()&&/[A-ZÁÉÍÓÚÑ]/.test(tr)&&tr.length<70&&lineKind(tr)!=='c'){
+      if(cur&&cur.lines.every(x=>!x.trim())&&cur.titleH&&Math.abs(cur.titleH-l.h)<l.h*.2){cur.title+=' '+tr;continue} /* título en dos líneas */
+      cur={title:tr.replace(/^\*+/,'').trim(),lines:[],titleH:l.h};songs.push(cur);continue}
+    if(cur)cur.lines.push(t)}
+  return songs.map(s=>{let L=s.lines,genre='';for(let i=0;i<Math.min(6,L.length);i++){const x=L[i].trim();if(x&&x===x.toUpperCase()&&genreFrom(x)&&x.length<60){genre=genreFrom(x);L.splice(i,1);break}}
+    const out=[];for(const l of L){if(!l.trim()){if(out.length&&out[out.length-1]==='')continue;out.push('');continue}out.push(l)}while(out[0]==='')out.shift();while(out.length&&out[out.length-1]==='')out.pop();
+    return {id:slugify(s.title),title:s.title,genre,text:out.join('\n')}}).filter(s=>s.id&&s.text);
+}
+async function memberUpload(file){
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Proponer canciones</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div><p class="note" id="imsg">Leyendo ${esc(file.name)}…</p>`);
+  let list;const pdf=/\.pdf$/i.test(file.name);
+  try{list=pdf?await parsePdf(file):await parseDocx(file)}catch(e){$('#imsg').textContent='No pude leer el archivo. Revisa que sea Word (.docx) o PDF, y que tengas internet.';return}
+  if(!list.length){$('#imsg').textContent=pdf?'No encontré canciones. En el PDF los títulos deben ir en MAYÚSCULAS y con letra más grande que el resto.':'No encontré canciones. Los títulos deben tener el estilo "Título 1" en Word.';return}
+  const sim=(a,b)=>{const A=normT(a).split(' '),B=normT(b).split(' ');const m=new Map();A.forEach(w=>m.set(w,(m.get(w)||0)+1));let c=0;B.forEach(w=>{const k=m.get(w);if(k){c++;m.set(w,k-1)}});return 2*c/Math.max(1,A.length+B.length)};
+  const nuevas=list.filter(x=>!BYID[x.id]),camb=list.filter(x=>BYID[x.id]&&(pdf?sim(x.text,songText(x.id))<.97:normT(x.text)!==normT(songText(x.id))));
+  const pick=[...nuevas,...camb];
+  if(!pick.length){$('#imsg').textContent='Todas las canciones del archivo ya están igual en el cancionero.';return}
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Proponer canciones</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <p class="note" style="margin:0 0 8px">Encontré <b>${nuevas.length} nuevas</b> y <b>${camb.length} con cambios</b>. ${pdf?'En PDF los acordes pueden quedar corridos: revisa y corrige cada una antes de enviar.':'Revisa y elige cuáles proponer.'}</p>
+    <div style="max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:8px">${pick.map((x,k)=>`<details class="item" style="display:block" ${pdf&&k===0?'open':''}><summary style="cursor:pointer"><label onclick="event.stopPropagation()"><input type="checkbox" data-k="${k}" checked style="accent-color:var(--wine)"></label> <b>${esc(x.title)}</b> <span class="pill">${BYID[x.id]?'con cambios':'nueva'}</span></summary>
+      <textarea data-t="${k}" rows="10" wrap="off" spellcheck="false" style="width:100%;margin-top:6px;font-family:var(--f-sheet);white-space:pre;overflow-x:auto;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)">${esc(x.text)}</textarea></details>`).join('')}</div>
+    <div class="field" style="margin-top:8px"><label for="mnote">Comentario para el administrador</label><input id="mnote" maxlength="300" placeholder="Ej.: canciones nuevas del certamen 2026"></div>
+    <div class="bar" style="margin-top:10px"><button class="btn primary" id="msend">Enviar para aprobación</button></div>`);
+  $('#msend').onclick=()=>{const sel=[...document.querySelectorAll('#cpop input[data-k]:checked')].map(i=>{const k=+i.dataset.k;return {...pick[k],text:document.querySelector(`#cpop textarea[data-t="${k}"]`).value.replace(/\s+$/,'')}});if(!sel.length){toast('Elige al menos una canción');return}
+    sendProposal({t:'nueva',songs:sel.map(x=>({title:x.title,genre:x.genre,text:x.text})),note:$('#mnote').value.trim().slice(0,300)})};
+}
+function memberSongForm(){
+  sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Proponer una canción</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
+    <div class="field"><label for="ns-t">Título</label><input id="ns-t" maxlength="120"></div>
+    <div class="field" style="margin-top:8px"><label for="ns-g">Estilo</label><select id="ns-g">${['',...GENRES].map(x=>`<option value="${esc(x)}">${esc(x||'Sin definir')}</option>`).join('')}</select></div>
+    <div class="field" style="margin-top:8px"><label for="ns-x">Letra y acordes (acordes en la línea de arriba del verso)</label><textarea id="ns-x" rows="10" wrap="off" style="font-family:var(--f-sheet);white-space:pre;overflow-x:auto"></textarea></div>
+    <div class="list" style="margin-top:10px"><button class="btn primary" id="ns-ok">Enviar para aprobación</button><label class="btn" style="text-align:center;cursor:pointer">⬆ O sube un Word o PDF<input id="ns-f" type="file" accept=".docx,.pdf" hidden></label></div>`);
+  $('#ns-ok').onclick=()=>{const t=$('#ns-t').value.trim(),x=$('#ns-x').value.replace(/\s+$/,'');if(!t){toast('Escribe el título');return}if(BYID[slugify(t)]){toast('Ya existe una canción con ese título: corrígela desde su página');return}if(!x.trim()){toast('Escribe la letra');return}
+    sendProposal({t:'nueva',songs:[{title:t,genre:$('#ns-g').value,text:x}]})};
+  $('#ns-f').onchange=e=>{const f=e.target.files[0];if(f)memberUpload(f)};
+}
 function checkApproval(){
+  try{const pq=new URLSearchParams(location.search).get('p'); if(pq){unzip(pq).then(t=>openProposal(JSON.parse(t))).catch(()=>toast('El link de la propuesta está incompleto'));return}}catch(e){}
   try{const del=new URLSearchParams(location.search).get('eliminar'); if(del){const clear=()=>{try{history.replaceState(null,'',location.pathname+location.hash)}catch(e){}};
     if(!BYID[del]){clear();toast('Esa canción ya no está en el cancionero');return}
     if(isAdmin()) confirmDelete(del,clear); else sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Pedido para eliminar</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div><p class="notice" style="margin:0">Solo el administrador puede eliminar <b>${esc(BYID[del].title)}</b>. Si eres el administrador, activa tu clave en <button class="btn small" id="apadm">⚙ Administrador</button> y vuelve a abrir el link.</p>`), $('#apadm')&&($('#apadm').onclick=adminSheet);
@@ -508,7 +653,7 @@ function adminSheet(){
     <p class="note" style="margin:0 0 8px">${TOKEN?'Este celular puede publicar cambios para todos. Lo que corrijas (letra, acordes, estilo, compás, tempo) les llega a todos en 1–2 minutos, la próxima vez que abran la app con internet.':'Pega la clave de GitHub para que este celular pueda publicar cambios para todos. Solo la necesita quien administra el cancionero.'}</p>
     <div class="field"><label for="tok">Clave de GitHub (token)</label><input id="tok" type="password" autocomplete="off" value="${esc(TOKEN)}" placeholder="github_pat_…"></div>
     ${TOKEN&&Object.keys(GLOBAL.eliminadas||{}).filter(k=>ALL[k]).length?`<details style="margin:6px 0"><summary class="note" style="cursor:pointer">Canciones eliminadas (${Object.keys(GLOBAL.eliminadas).filter(k=>ALL[k]).length})</summary><div class="list" style="margin-top:6px">${Object.keys(GLOBAL.eliminadas).filter(k=>ALL[k]).map(k=>`<div class="item" style="align-items:center"><span class="main">${esc(ALL[k].title)}</span><button class="btn small" data-restore="${esc(k)}">Restaurar</button></div>`).join('')}</div></details>`:''}
-    ${TOKEN?`<div class="list" style="margin:10px 0"><button class="btn" id="addsong">＋ Agregar una canción</button><label class="btn" style="text-align:center;cursor:pointer">⬆ Subir cancionero actualizado (.docx)<input id="docxin" type="file" accept=".docx" hidden></label></div>`:''}
+    ${TOKEN?`<div class="list" style="margin:10px 0"><button class="btn" id="addsong">＋ Agregar una canción</button><label class="btn" style="text-align:center;cursor:pointer">⬆ Subir cancionero actualizado (.docx)<input id="docxin" type="file" accept=".docx" hidden></label><button class="btn" id="openprop2">📥 Abrir propuesta (archivo)</button></div>`:''}
     <div class="bar" style="margin-top:10px"><button class="btn primary" id="toksave">Guardar y probar</button>${TOKEN?'<button class="btn" id="tokdel">Quitar clave</button>':''}</div>
     <p class="note" id="tokmsg" style="margin:6px 0 0"></p></div>`;
   pop.hidden=false; $('#cpx').onclick=()=>pop.hidden=true; pop.onclick=e=>{if(e.target===pop)pop.hidden=true};
@@ -517,6 +662,7 @@ function adminSheet(){
       try{localStorage.setItem('cn-gh-token',v)}catch(e){};m.textContent='Listo: este celular ya puede publicar cambios para todos.';toast('Modo administrador activado');setTimeout(()=>{pop.hidden=true;S.song?renderSong():renderList()},900)}
     catch(e){TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(er){};m.textContent=pubError(e)}};
   const as=$('#addsong'); if(as) as.onclick=()=>songForm();
+  const op2=$('#openprop2'); if(op2) op2.onclick=pickProposalFile;
   pop.querySelectorAll('[data-restore]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await publishAll(cur=>{cur.eliminadas=cur.eliminadas||{};delete cur.eliminadas[b.dataset.restore]},'Canción restaurada: '+ALL[b.dataset.restore].title);toast('Canción restaurada para todos');pop.hidden=true;renderList()}catch(e){b.disabled=false;toast(pubError(e))}});
   const dx=$('#docxin'); if(dx) dx.onchange=()=>{const f=dx.files[0]; if(f) importDocx(f)};
   const d=$('#tokdel'); if(d) d.onclick=()=>{TOKEN='';try{localStorage.removeItem('cn-gh-token')}catch(e){};toast('Clave quitada de este celular');pop.hidden=true;S.song?renderSong():renderList()};
@@ -529,7 +675,7 @@ async function saveMeta(id,patch){
   LOCAL[id]={...(LOCAL[id]||{}),...patch,lastEditAt:Date.now()};
   try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){throw e}
 }
-function songText(id){const r=S.live.rev[0]; if(S.song===id&&r) return r.text; const g=gOf(id); return g.text!=null?g.text:BYID[id].text}
+function songText(id){const r=S.live.rev[0]; if(S.song===id&&r) return r.text; const g=gOf(id), l=(typeof LOCAL!=='undefined'&&LOCAL[id])||{}; if(l.text!=null&&(l.textAt||0)>(g.at||0)) return l.text; return g.text!=null?g.text:BYID[id].text}
 function genreOf(id){return metaOf(id).genre ?? BYID[id].genre}
 function tempoOf(id){const m=metaOf(id); return m.tempo||GENRE[genreOf(id)]?.bpm||100}
 async function names(ids){
@@ -553,7 +699,7 @@ function renderList(){
   const q=norm(S.filter);
   const items=SONGS.filter(s=>(!S.genre||(S.genre==='__none'?!genreOf(s.id):genreOf(s.id)===S.genre))&&(!q||norm(s.title).includes(q)||norm(s.text).includes(q)));
   const gcount={}; SONGS.forEach(s=>{const g=genreOf(s.id)||'Sin ritmo';gcount[g]=(gcount[g]||0)+1});
-  let html=`${isAdmin()?'<div class="bar" style="justify-content:flex-end;margin:0 0 6px"><button class="btn small primary" id="addsong2">＋ Agregar canción</button><button class="btn small" id="upd2">⬆ Subir cancionero (.docx)</button><input id="docxin2" type="file" accept=".docx" hidden></div>':''}<div class="hero"><img src="${$('.crest').src}" alt=""><div><h1>Cancionero de la Tuna</h1><p>Universidad de Talca · ${SONGS.length} canciones</p></div></div><div class="tools"><input class="search" id="q" type="search" placeholder="Buscar canción o verso…" value="${esc(S.filter)}" aria-label="Buscar"></div>
+  let html=`${isAdmin()?'<div class="bar" style="justify-content:flex-end;margin:0 0 6px"><button class="btn small primary" id="addsong2">＋ Agregar canción</button><button class="btn small" id="upd2">⬆ Subir cancionero (.docx)</button><input id="docxin2" type="file" accept=".docx" hidden><button class="btn small" id="openprop">📥 Abrir propuesta</button></div>':canPropose()?'<div class="bar" style="justify-content:flex-end;margin:0 0 6px"><button class="btn small primary" id="propsong">＋ Proponer canción</button><button class="btn small" id="propup">⬆ Proponer desde Word o PDF</button><input id="propin" type="file" accept=".docx,.pdf" hidden></div>':''}<div class="hero"><img src="${$('.crest').src}" alt=""><div><h1>Cancionero de la Tuna</h1><p>Universidad de Talca · ${SONGS.length} canciones</p></div></div><div class="tools"><input class="search" id="q" type="search" placeholder="Buscar canción o verso…" value="${esc(S.filter)}" aria-label="Buscar"></div>
   <div class="chips" role="group" aria-label="Ritmo"><button class="chip" data-g="" aria-pressed="${!S.genre}">Todas · ${SONGS.length}</button>${
     Object.entries(gcount).sort((a,b)=>b[1]-a[1]).map(([g,n])=>`<button class="chip" data-g="${esc(g==='Sin ritmo'?'__none':g)}" aria-pressed="${S.genre===(g==='Sin ritmo'?'__none':g)}">${esc(g)} · ${n}</button>`).join('')}</div>
   <p class="count">${items.length} ${items.length===1?'canción':'canciones'}${q?` con “${esc(S.filter)}”`:''}. <span class="dot" style="display:inline-block"></span> = tiene correcciones del grupo.</p><ul class="songs">`;
@@ -570,6 +716,10 @@ function renderList(){
   app.innerHTML=html;
   const ab=$('#adminbtn'); if(ab) ab.onclick=adminSheet;
   const a2=$('#addsong2'); if(a2) a2.onclick=()=>songForm();
+  const op=$('#openprop'); if(op) op.onclick=pickProposalFile;
+  const ps=$('#propsong'); if(ps) ps.onclick=memberSongForm;
+  const pu=$('#propup'); if(pu) pu.onclick=()=>$('#propin').click();
+  const pi=$('#propin'); if(pi) pi.onchange=()=>{const f=pi.files[0]; if(f) memberUpload(f)};
   const u2=$('#upd2'); if(u2) u2.onclick=()=>$('#docxin2').click();
   const d2=$('#docxin2'); if(d2) d2.onchange=()=>{const f=d2.files[0]; if(f) importDocx(f)};
   const qi=$('#q'); qi.oninput=()=>{S.filter=qi.value;const pos=qi.selectionStart;renderList();const n=$('#q');n.focus();n.setSelectionRange(pos,pos)};
@@ -619,7 +769,7 @@ function toggleStyle(){
     <div class="field" id="st-ow" ${known?'hidden':''}><label for="st-o">Nombre del estilo</label><input id="st-o" maxlength="40" value="${known?'':esc(g)}" placeholder="Ej.: Pasacalle"></div>
     <div class="field"><label for="st-m">Compás</label><select id="st-m">${Object.entries(METERS).map(([k,v])=>`<option value="${k}" ${k===meterOf(id)?'selected':''}>${v}</option>`).join('')}</select></div>
     <div class="field"><label for="st-b">Tempo (BPM)</label><input id="st-b" type="number" min="40" max="240" value="${bpm}"></div>
-    <button class="btn primary" type="submit">Guardar estilo</button>
+    <button class="btn primary" type="submit">${canPropose()?'Guardar en mi celular':'Guardar estilo'}</button>${canPropose()?'<button class="btn" type="submit" id="st-prop">Proponer para todos</button>':''}
     <p class="note" style="grid-column:1/-1;margin:0">${S.db||isAdmin()?'El estilo, el compás y el tempo se guardan para todo el grupo y cambian el ritmo de “Escuchar” y la tablatura sugerida.':'El estilo se guarda solo en este teléfono. Para cambiarlo para todos, usa el modo Administrador.'}</p></form>`;
   box.hidden=false;btn.setAttribute('aria-expanded','true');
   const sel=$('#st-g');
@@ -627,6 +777,7 @@ function toggleStyle(){
   $('#styleform').onsubmit=async e=>{e.preventDefault();
     let v=sel.value; if(v==='__otro'){v=$('#st-o').value.trim(); if(!v){toast('Escribe el nombre del estilo');return}}
     const meter=$('#st-m').value, tempo=Math.max(40,Math.min(240,Math.round(+$('#st-b').value)||100));
+    if(canPropose()&&e.submitter&&e.submitter.id==='st-prop'){await saveMeta(id,{genre:v,meter,tempo});renderSong();sendProposal({t:'estilo',s:id,genre:v,meter,tempo});return}
     stopAudio();
     try{await saveMeta(id,{genre:v,meter,tempo});toast(`Estilo guardado: ${v||'sin definir'}, ${meter}, ${tempo} BPM`);renderSong()}catch(er){toast('No se pudo guardar el estilo')}};
 }
@@ -662,12 +813,13 @@ function panelLetra(){
       <p class="note">Corrige letra o acordes. Los acordes van en la línea de arriba del verso, alineados con espacios, igual que en el Word. Al guardar queda una versión nueva en el historial.</p>
       <textarea id="ed" spellcheck="false" wrap="off" aria-label="Texto de la canción">${esc(text)}</textarea>
       <div class="form" style="grid-template-columns:minmax(0,1fr) auto auto"><div class="field"><label for="ednote">Qué corregiste</label><input id="ednote" placeholder="Ej.: el acorde del coro es A7, no A"></div>
-      <button class="btn" id="edcancel">Cancelar</button><button class="btn primary" id="edsave">Guardar corrección</button></div></div>`;
+      <button class="btn" id="edcancel">Cancelar</button><button class="btn primary" id="edsave">${canPropose()?'Enviar para aprobación':'Guardar corrección'}</button></div></div>`;
     $('#edcancel').onclick=()=>{S.editing=false;renderSong()};
     $('#edsave').onclick=async()=>{
       const t=$('#ed').value.replace(/\s+$/,''); if(t===text){toast('No hay cambios');return}
       $('#edsave').disabled=true;
-      if(!S.db&&isAdmin()){try{await publishChange(id,{text:t,note:$('#ednote').value.trim().slice(0,300)},'Corrección');S.editing=false;toast('Publicado: les llega a todos en 1–2 minutos');renderSong()}catch(e){$('#edsave').disabled=false;toast(pubError(e))}return}
+      if(canPropose()){const note=$('#ednote').value.trim().slice(0,300);$('#edsave').disabled=false;await sendProposal({t:'texto',s:id,text:t,note});if(MYNAME){LOCAL[id]={...(LOCAL[id]||{}),text:t,textAt:Date.now()};try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){};S.editing=false;renderSong()}return}
+      if(!S.db&&isAdmin()){try{await publishChange(id,{text:t,prev:songText(id),note:$('#ednote').value.trim().slice(0,300),por:'Administrador'},'Corrección');S.editing=false;toast('Publicado: les llega a todos en 1–2 minutos');renderSong()}catch(e){$('#edsave').disabled=false;toast(pubError(e))}return}
       try{await S.db.collection(`songs/${id}/rev`).add({text:t,note:$('#ednote').value.trim().slice(0,300),by:S.me,at:Date.now()});await touchMeta(id,{});S.editing=false;toast('Corrección guardada');renderSong()}
       catch(e){$('#edsave').disabled=false;toast(e.code==='invalid_argument'?'No tienes permiso para guardar':'No se pudo guardar. Intenta de nuevo.')}
     };
@@ -678,7 +830,8 @@ function panelLetra(){
     <span class="grp"><span class="lbl">Letra</span><button id="fdn" aria-label="Letra más chica">A−</button><button id="fup" aria-label="Letra más grande">A+</button></span>
     <button class="btn" id="fit" aria-pressed="${S.fit}">${S.fit?'↔ Ajustada':'↔ Ajustar'}</button>
     <span class="grp"><button id="asc" aria-label="Desplazamiento automático">${SCR.on?'❚❚ Pausa':'▼ Desplazar'}</button><button id="sdn" aria-label="Más lento">−</button><span class="val" id="sv">${SCR.speed}</span><button id="sup" aria-label="Más rápido">+</button></span>
-    ${canW()||isAdmin()?'<button class="btn" id="edit">Corregir letra o acordes</button>':''}
+    ${canW()||isAdmin()?'<button class="btn" id="edit">Corregir letra o acordes</button>':canPropose()?'<button class="btn" id="edit">✎ Proponer corrección</button>':''}
+    ${canPropose()&&LOCAL[id]&&LOCAL[id].text!=null&&(LOCAL[id].textAt||0)>(gOf(id).at||0)?'<span class="pill" title="Solo tú ves esta versión hasta que el administrador la apruebe">Tu propuesta, pendiente</span><button class="btn small" id="undoloc">Ver la publicada</button>':''}
   </div>
   ${chordStrip(text)}
   <div class="sheetbox">${text.trim()?`<pre class="sheet" style="font-size:${S.size}px">${sheetHTML(text,S.transpose)}</pre>`:`<p class="empty" style="margin:12px">Esta canción todavía no tiene letra en el cancionero.${canW()?' Usa “Corregir letra o acordes” para agregarla.':''}</p>`}</div>`;
@@ -702,6 +855,7 @@ function panelLetra(){
   const i=SONGS.findIndex(x=>x.id===id), pv=SONGS[i-1], nx=SONGS[i+1];
   if(STANDALONE) p.insertAdjacentHTML('beforeend',`<p class="note" style="margin-top:18px;text-align:center"><button class="btn small" id="delsong">${isAdmin()?'🗑 Eliminar esta canción':'Pedir que se elimine esta canción'}</button></p>`);
   p.insertAdjacentHTML('beforeend',`<nav class="songnav" aria-label="Otras canciones">${pv?`<a href="#s-${pv.id}">← ${esc(pv.title)}</a>`:'<span></span>'}${nx?`<a href="#s-${nx.id}">${esc(nx.title)} →</a>`:''}</nav>`);
+  const ul=$('#undoloc'); if(ul) ul.onclick=()=>{delete LOCAL[id].text;delete LOCAL[id].textAt;try{localStorage.setItem('cn-meta',JSON.stringify(LOCAL))}catch(e){};toast('Volviste a la versión publicada');renderSong()};
   const ds=$('#delsong'); if(ds) ds.onclick=()=>isAdmin()?confirmDelete(id):requestDelete(id);
   $('#fit').onclick=()=>{S.fit=!S.fit;try{localStorage.setItem('cn-fit',S.fit?'1':'0')}catch(e){};panelLetra()};
   $('#asc').onclick=()=>{SCR.on?stopScroll():startScroll();$('#asc').textContent=SCR.on?'❚❚ Pausa':'▼ Desplazar'};
@@ -1103,7 +1257,8 @@ function panelTab(){
   const seq=chordsOf(songText(id)).map(c=>S.transpose?(parseChord(transposeTok(c.name,S.transpose))||c):c);
   const uniq=[];const seen=new Set(); for(const c of seq){if(!seen.has(c.name)){seen.add(c.name);uniq.push(c)}}
   const sug=suggestTab(seq,inst,meter);
-  const saved=S.live.tabs.filter(t=>t.instrument===inst);
+  const gt=((gOf(id).tabs)||{})[inst], gtb=((gOf(id).tabsBy)||{})[inst];
+  const saved=S.db?S.live.tabs.filter(t=>t.instrument===inst):(gt?[{id:'g',text:gt,by:null,at:(gtb&&gtb.at)||gOf(id).at,note:gtb?(gtb.note?gtb.note+' · ':'')+'por '+gtb.por:''}]:[]);
   const cur=saved[0];
   const shapes=uniq.map(c=>[c,shapeFor(c,inst,null)]);
   p.innerHTML=`${roNotice()}<div class="bar"><span class="grp"><span class="lbl">Instrumento</span><select id="instsel" aria-label="Instrumento">${Object.entries(TUN).map(([k,v])=>`<option value="${k}" ${k===inst?'selected':''}>${v.name}</option>`).join('')}</select></span>
@@ -1112,19 +1267,21 @@ function panelTab(){
   <div class="shapes">${shapes.map(([c,fr])=>`<div class="shape">${shapeSVG(c,fr)}<b>${esc(c.name)}</b></div>`).join('')||'<p class="empty">Sin acordes.</p>'}</div>
   <p class="note">Tres órdenes agudas (La, Mi, Si). El círculo vacío es cuerda al aire; el número indica el traste de inicio.</p>
   <h2 class="sec">${cur?`Tablatura del grupo · ${esc(TUN[inst].name)}`:`Tablatura sugerida · ${esc(TUN[inst].name)}`}</h2>
-  ${cur?`<p class="note">Versión de ${esc(who(cur.by))}, ${fmtDate(cur.at)}${cur.note?` — “${esc(cur.note)}”`:''}. ${saved.length>1?`${saved.length} versiones en total.`:''}</p>`:`<p class="note">Arpegio sugerido con las notas de cada acorde, ${meter}, un compás por acorde. Ajústalo con el punteo real y guárdalo para el grupo.</p>`}
+  ${cur&&!S.db?`<p class="note">Aprobada por el administrador${cur.at?', '+fmtDate(cur.at):''}${cur.note?` — ${esc(cur.note)}`:''}.</p>`:cur?`<p class="note">Versión de ${esc(who(cur.by))}, ${fmtDate(cur.at)}${cur.note?` — “${esc(cur.note)}”`:''}. ${saved.length>1?`${saved.length} versiones en total.`:''}</p>`:`<p class="note">Arpegio sugerido con las notas de cada acorde, ${meter}, un compás por acorde. Ajústalo con el punteo real y guárdalo para el grupo.</p>`}
   <div id="tabbox"></div>
-  ${saved.length?`<h2 class="sec">Versiones anteriores</h2><ul class="list hist">${saved.map((t,i)=>`<li class="item"><div class="main"><b>${i===0?'Actual':'Versión '+(saved.length-i)}</b> · ${esc(who(t.by))} · ${fmtDate(t.at)}${t.note?`<div class="meta">${esc(t.note)}</div>`:''}</div>${i>0&&canW()?`<button class="btn small" data-restore="${esc(t.id)}">Restaurar</button>`:''}<button class="btn small" data-view="${esc(t.id)}">Ver</button></li>`).join('')}</ul>`:''}`;
+  ${saved.length&&S.db?`<h2 class="sec">Versiones anteriores</h2><ul class="list hist">${saved.map((t,i)=>`<li class="item"><div class="main"><b>${i===0?'Actual':'Versión '+(saved.length-i)}</b> · ${esc(who(t.by))} · ${fmtDate(t.at)}${t.note?`<div class="meta">${esc(t.note)}</div>`:''}</div>${i>0&&canW()?`<button class="btn small" data-restore="${esc(t.id)}">Restaurar</button>`:''}<button class="btn small" data-view="${esc(t.id)}">Ver</button></li>`).join('')}</ul>`:''}`;
   let viewing=cur?cur.text:sug.text;
-  const showView=()=>{$('#tabbox').innerHTML=`<pre class="tabtext">${esc(viewing)}</pre><div class="bar" style="margin-top:10px">${canW()?`<button class="btn primary" id="tabedit">${cur?'Corregir tablatura':'Editar y guardar para el grupo'}</button>`:''}${cur?`<button class="btn" id="tabsug">Ver la sugerida</button>`:''}<button class="btn" id="tabcopy">Copiar</button></div>`;
+  const showView=()=>{$('#tabbox').innerHTML=`<pre class="tabtext">${esc(viewing)}</pre><div class="bar" style="margin-top:10px">${canW()||isAdmin()?`<button class="btn primary" id="tabedit">${cur?'Corregir tablatura':'Editar y guardar para el grupo'}</button>`:canPropose()?`<button class="btn primary" id="tabedit">✎ ${cur?'Proponer corrección':'Proponer tablatura'}</button>`:''}${cur?`<button class="btn" id="tabsug">Ver la sugerida</button>`:''}<button class="btn" id="tabcopy">Copiar</button></div>`;
     const te=$('#tabedit'); if(te) te.onclick=showEdit;
     const ts=$('#tabsug'); if(ts) ts.onclick=()=>{viewing=sug.text;showView()};
     $('#tabcopy').onclick=()=>{navigator.clipboard.writeText(viewing).then(()=>toast('Tablatura copiada'),()=>toast('Selecciona el texto y cópialo'))};
   };
   const showEdit=()=>{S.editing=true;$('#tabbox').innerHTML=`<textarea class="tabedit" id="tabta" spellcheck="false" wrap="off" aria-label="Tablatura">${esc(viewing)}</textarea>
-    <div class="form" style="grid-template-columns:minmax(0,1fr) auto auto"><div class="field"><label for="tabnote">Qué cambiaste</label><input id="tabnote" placeholder="Ej.: punteo de la introducción en 5.º traste"></div><button class="btn" id="tabcancel">Cancelar</button><button class="btn primary" id="tabsave">Guardar versión</button></div>`;
+    <div class="form" style="grid-template-columns:minmax(0,1fr) auto auto"><div class="field"><label for="tabnote">Qué cambiaste</label><input id="tabnote" placeholder="Ej.: punteo de la introducción en 5.º traste"></div><button class="btn" id="tabcancel">Cancelar</button><button class="btn primary" id="tabsave">${canPropose()?'Enviar para aprobación':'Guardar versión'}</button></div>`;
     $('#tabcancel').onclick=()=>{S.editing=false;panelTab()};
     $('#tabsave').onclick=async()=>{const t=$('#tabta').value.replace(/\s+$/,'');if(!t){toast('La tablatura está vacía');return}$('#tabsave').disabled=true;
+      if(canPropose()){$('#tabsave').disabled=false;sendProposal({t:'tab',s:id,inst,text:t,note:$('#tabnote').value.trim().slice(0,300)});return}
+      if(!S.db&&isAdmin()){try{await publishChange(id,prev=>({tabs:{...(prev.tabs||{}),[inst]:t},tabsBy:{...(prev.tabsBy||{}),[inst]:{por:'Administrador',at:Date.now(),note:$('#tabnote').value.trim().slice(0,300)}}}),'Tablatura: '+BYID[id].title);S.editing=false;toast('Publicada: les llega a todos en 1–2 minutos');panelTab()}catch(e){$('#tabsave').disabled=false;toast(pubError(e))}return}
       try{await S.db.collection(`songs/${id}/tabs`).add({instrument:inst,text:t,note:$('#tabnote').value.trim().slice(0,300),by:S.me,at:Date.now()});await touchMeta(id,{});S.editing=false;toast('Tablatura guardada');panelTab()}catch(e){$('#tabsave').disabled=false;toast('No se pudo guardar')}};
   };
   showView();
@@ -1164,6 +1321,18 @@ function panelVideos(){
 
 /* ---------- historial ---------- */
 function panelHist(){
+  if(!S.db&&STANDALONE){const id=S.song,p=$('#panel'),g=gOf(id),ev=[];
+    if(g.text!=null) ev.push({t:'Letra o acordes',por:g.por,note:g.note,at:g.at});
+    Object.entries(g.tabsBy||{}).forEach(([k,v])=>ev.push({t:'Tablatura '+(TUN[k]?.name||k),por:v.por,note:v.note,at:v.at}));
+    if(g.genre!=null||g.tempo) ev.push({t:'Estilo y tempo',por:g.por,at:g.at});
+    (g.videos||[]).forEach(v=>ev.push({t:'Video',note:v.title,at:v.at}));
+    p.innerHTML=ev.length?`<ul class="list">${ev.sort((a,b)=>(b.at||0)-(a.at||0)).map(e=>`<li class="item"><div class="main"><b>${esc(e.t)}</b>${e.por?' · '+esc(e.por):''} · ${fmtDate(e.at)}${e.note?`<div class="meta">${esc(e.note)}</div>`:''}</div></li>`).join('')}</ul>
+      ${isAdmin()&&g.prev!=null?'<p class="note" style="margin-top:12px">¿La última corrección quedó mal? <button class="btn small" id="hundo">Volver a la letra anterior</button></p>':''}
+      ${isAdmin()&&g.text!=null?'<p class="note">¿Volver al texto original del Word? <button class="btn small" id="horig">Restaurar original</button></p>':''}`
+      :'<p class="empty">Nadie ha corregido esta canción todavía. El texto viene del cancionero del 15-08-2026.</p>';
+    const u=$('#hundo'); if(u) u.onclick=async()=>{u.disabled=true;try{await publishChange(id,prev=>({text:prev.prev,prev:prev.text,note:'Vuelta a la versión anterior',por:'Administrador'}),'Deshacer corrección: '+BYID[id].title);toast('Letra anterior restaurada para todos');panelHist()}catch(e){u.disabled=false;toast(pubError(e))}};
+    const o=$('#horig'); if(o) o.onclick=async()=>{o.disabled=true;try{await publishChange(id,prev=>({text:ALL[id].text,prev:prev.text,note:'Vuelta al original del Word',por:'Administrador'}),'Restaurar original: '+BYID[id].title);toast('Original restaurado para todos');panelHist()}catch(e){o.disabled=false;toast(pubError(e))}};
+    return}
   const id=S.song,p=$('#panel'),revs=S.live.rev;
   const ev=[...revs.map(r=>({t:'Letra/acordes',x:r})),...S.live.tabs.map(r=>({t:'Tablatura '+(TUN[r.instrument]?.name||''),x:r})),...S.live.videos.map(r=>({t:'Presentación',x:r})),...S.live.audios.map(r=>({t:'Grabación',x:r}))].sort((a,b)=>b.x.at-a.x.at);
   p.innerHTML=`${roNotice()}${ev.length?`<ul class="list">${ev.map(e=>`<li class="item"><div class="main"><b>${esc(e.t)}</b> · ${esc(who(e.x.by))} · ${fmtDate(e.x.at)}${e.x.note?`<div class="meta">${esc(e.x.note)}</div>`:''}</div>${e.t==='Letra/acordes'&&canW()&&e.x!==revs[0]?`<button class="btn small" data-r="${esc(e.x.id)}">Restaurar esta letra</button>`:''}</li>`).join('')}</ul>
