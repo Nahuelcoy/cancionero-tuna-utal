@@ -404,7 +404,7 @@ let MYNAME='';try{MYNAME=localStorage.getItem('cn-nombre')||''}catch(e){}
 const canPropose=()=>STANDALONE&&!isAdmin();
 async function zip(str){if(!window.CompressionStream) return 'r'+b64u(str);const cs=new Blob([str]).stream().pipeThrough(new CompressionStream('deflate-raw'));const buf=new Uint8Array(await new Response(cs).arrayBuffer());let b='';for(let i=0;i<buf.length;i+=8192)b+=String.fromCharCode.apply(null,buf.subarray(i,i+8192));return 'z'+btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 async function unzip(t){const k=t[0],d=t.slice(1);if(k==='r') return JSON.stringify(unb64u(d));const bin=atob(d.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((d.length+3)%4));const u=Uint8Array.from(bin,c=>c.charCodeAt(0));const ds=new Blob([u]).stream().pipeThrough(new DecompressionStream('deflate-raw'));return await new Response(ds).text()}
-const PTYPE={texto:'Corrección de letra o acordes',tab:'Tablatura',estilo:'Estilo y tempo',nueva:'Canción nueva'};
+const PTYPE={texto:'Corrección de letra o acordes',tab:'Tablatura',estilo:'Estilo y tempo',nueva:'Canción nueva',audio:'Grabación'};
 function propLabel(P){if(P.t==='nueva') return P.songs.length===1?'Canción nueva: '+P.songs[0].title:P.songs.length+' canciones nuevas o corregidas';return (PTYPE[P.t]||'Propuesta')+(P.s&&BYID[P.s]?': '+BYID[P.s].title:'')+(P.t==='tab'?' ('+(TUN[P.inst]?.name||'')+')':'')}
 function askName(){return new Promise(res=>{
   sheet(`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">¿Quién propone?</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
@@ -414,7 +414,7 @@ function askName(){return new Promise(res=>{
   $('#nmok').onclick=()=>{const v=$('#nm').value.trim();if(!v){toast('Escribe tu nombre o apodo');return}MYNAME=v;try{localStorage.setItem('cn-nombre',v)}catch(e){};res(v)}})}
 async function sendProposal(P){
   const by=await askName(); if(!by) return; P.by=by; P.at=Date.now(); P.v=1;
-  const code=await zip(JSON.stringify(P)), link=APP_URL+'?p='+code, label=propLabel(P);
+  const big=P.t==='audio'&&P.data; const code=big?'':await zip(JSON.stringify(P)), link=big?'x'.repeat(40000):APP_URL+'?p='+code, label=propLabel(P);
   const short=link.length<=1800, waOk=link.length<=30000;
   const body=`${label}\nPropuesta por: ${by}${P.note?'\nComentario: '+P.note:''}\n\nPara revisarla y aprobarla, abre este link en el celular de administrador:\n${link}`;
   const mail=`mailto:${ADMIN_MAIL}?subject=${encodeURIComponent('Propuesta para el cancionero: '+label)}&body=${encodeURIComponent(short?body:`${label}\nPropuesta por: ${by}\n\nAdjunto el archivo de la propuesta (.cancionero). Ábrelo en la app con ⚙ Administrador → Abrir propuesta.`)}`;
@@ -449,11 +449,15 @@ async function openProposal(P){
   const head=`<div class="cptop"><b style="font-family:var(--f-display);font-size:1.25rem;color:var(--wine)">Propuesta por aprobar</b><button class="btn small" id="cpx" aria-label="Cerrar">✕</button></div>
     <p style="margin:0"><b>${esc(propLabel(P))}</b></p><p class="note" style="margin:2px 0 8px">Propuesta por ${esc(P.by||'un tuno')}${P.at?' · '+fmtDate(P.at):''}${P.note?`<br>“${esc(P.note)}”`:''}</p>`;
   let body='', apply=null;
-  if((P.t==='texto'||P.t==='tab'||P.t==='estilo')&&!BYID[P.s]){sheet(head+'<p class="notice">Esa canción ya no está en el cancionero.</p>');clear();return}
+  if((P.t==='texto'||P.t==='tab'||P.t==='estilo'||P.t==='audio')&&!BYID[P.s]){sheet(head+'<p class="notice">Esa canción ya no está en el cancionero.</p>');clear();return}
   if(P.t==='texto'){const d=diffHTML(songText(P.s),P.text);body=d.changes?d.html+'<p class="note" style="margin:4px 0 0"><span class="dm" style="padding:0 4px">quitado</span> <span class="dp" style="padding:0 4px">agregado</span></p>':'<p class="notice">No hay diferencias con la versión publicada.</p>';
     apply=()=>publishChange(P.s,prev=>({text:P.text,prev:prev.text??BYID[P.s].text,note:P.note||'',por:P.by}),'Corrección de '+P.by+': '+BYID[P.s].title)}
   else if(P.t==='tab'){const curT=((gOf(P.s).tabs)||{})[P.inst];const d=diffHTML(curT||'',P.text);body=(curT?'':'<p class="note" style="margin:0 0 4px">Primera tablatura de esta canción para '+esc(TUN[P.inst]?.name||'')+'.</p>')+d.html;
     apply=()=>publishChange(P.s,prev=>({tabs:{...(prev.tabs||{}),[P.inst]:P.text},tabsBy:{...(prev.tabsBy||{}),[P.inst]:{por:P.by,at:Date.now(),note:P.note||''}}}),'Tablatura de '+P.by+': '+BYID[P.s].title)}
+  else if(P.t==='audio'){const okExt=AUD_EXT[P.ext]&&P.data;body=`<p style="margin:0 0 6px"><b>${esc(P.title||'Grabación')}</b> <span class="pill">${esc(P.inst||'')}</span></p>`+(P.url?`<a href="${esc(/^https?:\/\//i.test(P.url)?P.url:'#')}" target="_blank" rel="noopener">Escuchar en el link ↗</a>`:okExt?`<audio controls style="width:100%" src="data:${esc(AUD_EXT[P.ext])};base64,${P.data}"></audio><p class="note" style="margin:4px 0 0">${(P.data.length*.75/1048576).toFixed(1)} MB · .${esc(P.ext)}</p>`:'<p class="notice">El audio no venía completo.</p>');
+    apply=()=>{const meta={title:String(P.title||'Grabación').slice(0,80),inst:INSTS.includes(P.inst)?P.inst:'Toda la tuna',por:P.by};
+      if(P.url){if(!/^https?:\/\/\S+$/i.test(P.url)) throw Object.assign(new Error('url'),{status:0});return publishChange(P.s,prev=>({audios:[...(prev.audios||[]),{id:'a'+Date.now().toString(36),kind:'link',url:P.url,...meta,at:Date.now()}]}),'Grabación de '+P.by+': '+BYID[P.s].title)}
+      if(!okExt) throw Object.assign(new Error('audio'),{status:0});return uploadAudio(P.s,P.data,P.ext,meta,'Grabación de '+P.by+': '+BYID[P.s].title)}}
   else if(P.t==='estilo'){const m=metaOf(P.s);body=`<table class="mini"><tr><th></th><th>Ahora</th><th>Propuesta</th></tr><tr><td>Estilo</td><td>${esc(genreOf(P.s)||'—')}</td><td><b>${esc(P.genre||'—')}</b></td></tr><tr><td>Compás</td><td>${esc(meterOf(P.s))}</td><td><b>${esc(P.meter)}</b></td></tr><tr><td>Tempo</td><td>${tempoOf(P.s)}</td><td><b>${+P.tempo}</b></td></tr></table>`;
     apply=()=>publishChange(P.s,{genre:String(P.genre||'').slice(0,40),meter:METERS[P.meter]?P.meter:'4/4',tempo:Math.max(40,Math.min(240,+P.tempo||100)),por:P.by},'Estilo de '+P.by+': '+BYID[P.s].title)}
   else if(P.t==='nueva'){const L=(P.songs||[]).filter(x=>x&&x.title&&x.text);
@@ -464,7 +468,7 @@ async function openProposal(P){
   const pop=sheet(head+body+(isAdmin()?`<div class="bar" style="margin-top:12px"><button class="btn primary" id="pok">Aprobar y publicar</button><button class="btn" id="pno">Rechazar</button></div>`
     :`<p class="notice" style="margin:12px 0 0">Solo el administrador puede aprobar propuestas. Si eres el administrador, activa tu clave en <button class="btn small" id="apadm">⚙ Administrador</button> y vuelve a abrir el link.</p>`));
   pop.querySelector('.cpin').style.maxWidth='620px';
-  const ok=$('#pok'); if(ok) ok.onclick=async()=>{ok.disabled=true;try{await apply();clear();pop.hidden=true;toast('Aprobada: les llega a todos en 1–2 minutos');if(P.s){location.hash='s-'+P.s;route();if(P.t==='tab'){S.tab='tablatura';S.instr=P.inst;renderSong()}}else{location.hash='';route()}}catch(e){ok.disabled=false;toast(e.nada?'Elige al menos una canción':pubError(e))}};
+  const ok=$('#pok'); if(ok) ok.onclick=async()=>{ok.disabled=true;try{await apply();clear();pop.hidden=true;toast('Aprobada: les llega a todos en 1–2 minutos');if(P.s){location.hash='s-'+P.s;route();if(P.t==='tab'){S.tab='tablatura';S.instr=P.inst;renderSong()}if(P.t==='audio'){S.tab='escuchar';renderSong()}}else{location.hash='';route()}}catch(e){ok.disabled=false;toast(e.nada?'Elige al menos una canción':pubError(e))}};
   const no=$('#pno'); if(no) no.onclick=()=>{clear();pop.hidden=true;toast('Propuesta rechazada: no se publicó nada')};
   const ad=$('#apadm'); if(ad) ad.onclick=adminSheet;
 }
@@ -753,7 +757,7 @@ function renderSong(soft){
   <h1 class="song">${esc(s.title)}</h1>
   <div class="sub">${canMeta()?`<button class="pill stylebtn" id="stylebtn" aria-expanded="false">${esc(g||'Definir estilo')} ✎</button>`:`<span class="pill">${esc(g||'Ritmo sin definir')}</span>`}<span class="pill wine">${bpm} BPM${m.tempo?'':' · sugerido'}</span><span>${meterOf(id)}</span>${S.live.rev[0]?`<span class="last">Última corrección: ${esc(who(S.live.rev[0].by))}, ${fmtDate(S.live.rev[0].at)}</span>`:''}</div>
   <div id="stylebox" hidden></div>
-  <div class="tabs" role="tablist">${tabs.map(([k,l,sh,ic])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><span class="full">${l}</span><span class="short">${sh}</span>${k==='videos'&&vidsOf(id).length?` · ${vidsOf(id).length}`:''}${k==='escuchar'&&S.live.audios.length?` · ${S.live.audios.length}`:''}</button>`).join('')}</div>
+  <div class="tabs" role="tablist">${tabs.map(([k,l,sh,ic])=>`<button role="tab" data-t="${k}" aria-selected="${S.tab===k}"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg><span class="full">${l}</span><span class="short">${sh}</span>${k==='videos'&&vidsOf(id).length?` · ${vidsOf(id).length}`:''}${k==='escuchar'&&(S.db?S.live.audios:((gOf(id).audios)||[])).length?` · ${(S.db?S.live.audios:((gOf(id).audios)||[])).length}`:''}</button>`).join('')}</div>
   <div class="panel" id="panel"></div>`;
   app.querySelectorAll('[role=tab]').forEach(b=>b.onclick=()=>{stopAudio();stopScroll();S.tab=b.dataset.t;S.editing=false;renderSong();window.scrollTo(0,0)});
   wake();
@@ -1116,8 +1120,69 @@ function panelEscuchar(){
   $('#tdn2').onclick=()=>{stopAudio();S.transpose--;panelEscuchar()};$('#tup2').onclick=()=>{stopAudio();S.transpose++;panelEscuchar()};
   renderAudios();
 }
+const AUD_EXT={mp3:'audio/mpeg',m4a:'audio/mp4',aac:'audio/aac',mp4:'audio/mp4',wav:'audio/wav',ogg:'audio/ogg',oga:'audio/ogg',opus:'audio/ogg',webm:'audio/webm',weba:'audio/webm',amr:'audio/amr',flac:'audio/flac'};
+const AUD_MAX=20*1024*1024;
+const INSTS=['Toda la tuna','Guitarra','Bandurria','Laúd','Contrabajo','Pandereta','Voz'];
+const fileB64=f=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=ko;r.readAsDataURL(f)});
+const audExt=(name,type)=>{let e=(name.split('.').pop()||'').toLowerCase();if(!AUD_EXT[e]){e=/mp4|m4a|aac/.test(type)?'m4a':/webm/.test(type)?'webm':/ogg|opus/.test(type)?'ogg':/mpeg|mp3/.test(type)?'mp3':/wav/.test(type)?'wav':''}return e};
+async function uploadAudio(id,b64,ext,meta,label){
+  const path=`audios/${id}/${Date.now()}-${slugify(meta.title||'grabacion').slice(0,30)||'grabacion'}.${ext}`;
+  await gh('/contents/'+path,{method:'PUT',body:JSON.stringify({message:label,content:b64,branch:'main'})});
+  await publishChange(id,prev=>({audios:[...(prev.audios||[]),{id:'a'+Date.now().toString(36),kind:'file',file:path,...meta,at:Date.now()}]}),label);
+}
+function recorderUI(box,onDone){
+  if(!navigator.mediaDevices||!window.MediaRecorder){toast('Este navegador no permite grabar. Graba con la app de notas de voz y sube el archivo.');return}
+  let rec=null,chunks=[],t0=0,timer=null,stream=null;
+  box.innerHTML=`<div class="bar" style="margin:6px 0"><button type="button" class="btn primary" id="recgo">● Grabar</button><span class="note" id="rect">Toca para empezar. Acerca el celular al instrumento.</span></div>`;
+  const go=$('#recgo'),lab=$('#rect');
+  go.onclick=async()=>{
+    if(rec&&rec.state==='recording'){rec.stop();return}
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}catch(e){toast('No hay permiso para usar el micrófono');return}
+    const mt=['audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg'].find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||'';
+    rec=new MediaRecorder(stream,mt?{mimeType:mt}:undefined);chunks=[];rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    rec.onstop=()=>{clearInterval(timer);stream.getTracks().forEach(t=>t.stop());const type=(rec.mimeType||mt||'audio/webm').split(';')[0];const blob=new Blob(chunks,{type});
+      const f=new File([blob],'grabacion.'+(audExt('x',type)||'webm'),{type});go.textContent='● Grabar de nuevo';lab.innerHTML='';
+      const au=document.createElement('audio');au.controls=true;au.src=URL.createObjectURL(blob);au.style.width='100%';lab.after(au);onDone(f)};
+    rec.start();t0=Date.now();go.textContent='■ Detener';timer=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);lab.textContent=`Grabando… ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;if(s>=600)rec.stop()},500);
+  };
+}
 function renderAudios(){
   const box=$('#aud'); if(!box) return; const id=S.song;
+  if(!S.db&&STANDALONE){
+    const list=((gOf(id).audios)||[]).slice().sort((a,b)=>(b.at||0)-(a.at||0));
+    let h=list.length?`<ul class="list">${list.map(a=>`<li class="item"><div class="main"><b>${esc(a.title||'Grabación')}</b> <span class="pill">${esc(a.inst||'Toda la tuna')}</span><div class="meta">${a.por?esc(a.por)+' · ':''}${fmtDate(a.at)}</div>
+      ${a.kind==='file'?`<audio controls preload="none" src="${esc(a.file)}"></audio>`:`<a href="${esc(a.url)}" target="_blank" rel="noopener">Abrir grabación ↗</a>`}</div>
+      ${isAdmin()?`<button class="btn small" data-del="${esc(a.id)}">Quitar</button>`:''}</li>`).join('')}</ul>`
+      :`<p class="empty">Aún no hay grabaciones. Sube cómo suena tu instrumento en esta canción para que los novatos aprendan.</p>`;
+    h+=`<form class="form" id="audform">
+      <div class="field" style="grid-column:1/-1"><label>Audio</label><div class="bar" style="margin:0"><label class="btn" style="cursor:pointer">⬆ Elegir archivo<input id="afile" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.webm,.amr,.flac" hidden></label><button type="button" class="btn" id="arec">🎙 Grabar ahora</button><span class="note" id="aname">mp3, m4a, wav, notas de voz… hasta 20 MB</span></div><div id="recbox"></div></div>
+      <div class="field"><label for="atitle">Título</label><input id="atitle" placeholder="Ej.: Punteo del coro" maxlength="80"></div>
+      <div class="field"><label for="ainst">Instrumento</label><select id="ainst">${INSTS.map(x=>`<option>${x}</option>`).join('')}</select></div>
+      <div class="field"><label for="aurl">o link (Drive, YouTube, SoundCloud)</label><input id="aurl" type="url" placeholder="https://…"></div>
+      <button class="btn primary" id="asave" type="submit">${isAdmin()?'Publicar grabación':'Enviar para aprobación'}</button></form>
+      ${isAdmin()?'':'<p class="note">El administrador la escucha y, si la aprueba, aparece aquí para todos.</p>'}<p class="note">En iPhone, las notas de voz de WhatsApp (.opus) pueden no sonar; si pasa, conviértelas a mp3 o m4a.</p>`;
+    box.innerHTML=h;
+    let file=null;
+    $('#afile').onchange=e=>{file=e.target.files[0]||null;if(file){$('#aname').textContent=file.name+' · '+(file.size/1048576).toFixed(1)+' MB';if(!$('#atitle').value)$('#atitle').value=file.name.replace(/\.[^.]+$/,'').slice(0,80)}};
+    $('#arec').onclick=()=>recorderUI($('#recbox'),f=>{file=f;$('#aname').textContent='Grabación lista · '+(f.size/1048576).toFixed(1)+' MB'});
+    box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='¿Seguro? Quitar';return}b.disabled=true;
+      try{const a=list.find(x=>x.id===b.dataset.del);await publishChange(id,prev=>({audios:(prev.audios||[]).filter(x=>x.id!==b.dataset.del)}),'Quitar grabación: '+BYID[id].title);
+        if(a&&a.file){try{const f=await gh('/contents/'+a.file+'?ref=main');await gh('/contents/'+a.file,{method:'DELETE',body:JSON.stringify({message:'Borrar audio',sha:f.sha,branch:'main'})})}catch(e){}}
+        toast('Grabación quitada para todos');renderAudios()}catch(e){b.disabled=false;toast(pubError(e))}});
+    $('#audform').onsubmit=async e=>{e.preventDefault();const btn=$('#asave'),url=$('#aurl').value.trim(),meta={title:$('#atitle').value.trim().slice(0,80)||'Grabación',inst:$('#ainst').value};
+      if(!file&&!/^https?:\/\/\S+$/i.test(url)){toast('Elige un archivo, graba, o pega un link que empiece con https://');return}
+      if(file){const ext=audExt(file.name,file.type);if(!ext){toast('Ese archivo no parece un audio. Usa mp3, m4a, wav u ogg.');return}if(file.size>AUD_MAX){toast('El audio pesa más de 20 MB: recórtalo o súbelo a Drive y pega el link');return}
+        btn.disabled=true;btn.textContent=isAdmin()?'Subiendo…':'Preparando…';
+        try{const b64=await fileB64(file);
+          if(isAdmin()){await uploadAudio(id,b64,ext,{...meta,por:'Administrador'},'Grabación: '+BYID[id].title);toast('Publicada: les llega a todos en 1–2 minutos');renderAudios()}
+          else{btn.disabled=false;btn.textContent='Enviar para aprobación';sendProposal({t:'audio',s:id,...meta,ext,type:file.type||AUD_EXT[ext],data:b64})}
+        }catch(er){btn.disabled=false;btn.textContent=isAdmin()?'Publicar grabación':'Enviar para aprobación';toast(er.status?pubError(er):'No se pudo leer el audio')}
+        return}
+      if(isAdmin()){btn.disabled=true;try{await publishChange(id,prev=>({audios:[...(prev.audios||[]),{id:'a'+Date.now().toString(36),kind:'link',url,...meta,por:'Administrador',at:Date.now()}]}),'Grabación (link): '+BYID[id].title);toast('Publicada para todos');renderAudios()}catch(er){btn.disabled=false;toast(pubError(er))}}
+      else sendProposal({t:'audio',s:id,...meta,url});
+    };
+    return;
+  }
   const list=S.live.audios;
   let h=list.length?`<ul class="list">${list.map(a=>`<li class="item"><div class="main"><b>${esc(a.title||'Grabación')}</b> <span class="pill">${esc(a.instrument||'Toda la tuna')}</span><div class="meta">${esc(who(a.by))} · ${fmtDate(a.at)}</div>
     ${a.kind==='file'?`<audio controls preload="none" src="/_blob/${esc(a.assetId)}"></audio>`:`<a href="${esc(a.url)}" target="_blank" rel="noopener">Abrir grabación ↗</a>`}</div>
